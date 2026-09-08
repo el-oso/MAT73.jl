@@ -5,6 +5,9 @@ It does not use the HDF5 C library. It also works inside a small compiled progra
 
 MATLAB writes version 7.3 files when you use `save -v7.3`.
 
+**Needs Julia 1.12 or newer.** That is the first release with the `juliac` tool, which is what
+the small-program support is for.
+
 ## Example
 
 ```julia

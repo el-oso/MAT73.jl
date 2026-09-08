@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        version: ['1.10', '1.11', '1.12', 'nightly']
+        version: ['1.12', 'nightly']
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -65,8 +65,9 @@ jobs:
         run: julia --project=docs docs/make.jl
 
   trim:
-    # Both halves of the `--trim=safe` gate. They live outside the test matrix because
-    # TrimCheck needs the Compiler stdlib from Julia 1.12, while the package supports 1.10.
+    # Both halves of the `--trim=safe` gate. They live outside the test matrix because each
+    # needs its own environment: TrimCheck for the static check, and the juliac driver for
+    # the real build.
     name: --trim=safe
     runs-on: ubuntu-latest
     steps:

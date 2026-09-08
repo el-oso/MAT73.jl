@@ -1,8 +1,7 @@
 # Static half of the trim gate: run the `--trim=safe` verifier over every entry point.
 #
-# It lives outside the package test environment because TrimCheck needs the `Compiler` stdlib
-# that ships with Julia 1.12, and the package itself supports 1.10. Putting it in
-# `test/Project.toml` makes the whole suite unresolvable on the LTS.
+# It has its own environment: TrimCheck pins the `Compiler` stdlib, which the test
+# environment has no reason to carry.
 #
 # Run as: julia --project=trim trim/trimcheck.jl
 #

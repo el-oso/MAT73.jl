@@ -71,8 +71,8 @@ source.
 - It applies the same patches to the base library.
 - It therefore reports the same problems, including problems inside cleanup functions.
 - A failure here is a failure of the real build.
-- It lives outside the test setup. It needs a part of Julia 1.12, and this package supports
-  Julia 1.10.
+- It lives outside the test setup, in its own environment. The check needs a part of Julia
+  that the tests have no reason to carry.
 
 `juliac/build.jl` builds a real program and runs it.
 
