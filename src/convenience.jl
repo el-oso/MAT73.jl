@@ -57,6 +57,24 @@ function elementtype(oi::ObjInfo, name::String)
     )
 end
 
+"""
+Read a MATLAB table as a named tuple of columns, taking the column names and the type of
+every column from the file.
+
+The type of the result is therefore not fixed, which is why this sits beside the other short
+reads. A named tuple of vectors is a column table, so anything that reads the Tables.jl
+interface takes it as it is.
+"""
+function readtable(f::MatFile, oi::ObjInfo)
+    varnames = vec(matread(f, MatRef(objectproperty(f, oi, "varnames")), Matrix{MatRef}))
+    data = vec(matread(f, MatRef(objectproperty(f, oi, "data")), Matrix{MatRef}))
+    length(varnames) == length(data) ||
+        error("this MATLAB table has ", length(varnames), " column names for ", length(data), " columns")
+    names = ntuple(i -> Symbol(matread(f, varnames[i], String)), length(varnames))
+    columns = ntuple(i -> vec(matread(f, data[i])), length(data))
+    return NamedTuple{names}(columns)
+end
+
 # The number of dimensions comes from the file, so the typed read is reached through a ladder.
 function readrank(f::MatFile, key, ::Type{T}, n::Int) where {T}
     iszero(n) && return matread(f, key, Array{T, 0})
@@ -96,7 +114,8 @@ What you get:
 | a struct | a `Dict{String,Any}` |
 | an object | a `Dict{String,Any}` of its properties |
 | `datetime` | an `Array{DateTime}` |
-| `string` | an `Array{String}` |
+| `string`, `categorical` | an `Array{String}` |
+| `table` | a `NamedTuple` of columns |
 """
 function matread(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
@@ -113,6 +132,11 @@ function matread(f::MatFile, key)
             # A string keeps its own rank in the block it stores, not in the dataset.
             raw = matread(f, MatRef(objectproperty(f, oi, "any")), Matrix{UInt64})
             return readrank(f, key, String, length(raw) >= 2 ? Int(raw[2]) : 2)
+        elseif class == CATEGORICAL_CLASS
+            codes = objinfo(f.h5, objectproperty(f, oi, "codes"))
+            return readrank(f, key, String, codes.nd)
+        elseif class == TABLE_CLASS
+            return readtable(f, oi)
         end
         out = Dict{String, Any}()
         for prop in objectkeys(f, oi)

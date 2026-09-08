@@ -59,3 +59,15 @@ end
     f = matopen(OBJFILE)
     @test matclass(f, "obj_with_vals") == MAT_UNSUPPORTED
 end
+
+@testitem "a function handle and an old-style object read as their own values" setup = [Fixtures] begin
+    # Both carry the note that marks an object, but each is a group holding its own values
+    # rather than an index into the subsystem.
+    f = matopen(fixture("function_handles.mat"))
+    @test matobjectclass(f, "sin") == ""
+    @test matread(f, "sin")["function_handle"]["function"] == "sin"
+
+    g = matopen(fixture("old_class.mat"))
+    @test matkeys(g, "tc_old") == ["foo"]
+    @test matread(g, "tc_old") isa Dict{String, Any}
+end

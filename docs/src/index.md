@@ -192,7 +192,8 @@ For everything else, MAT.jl is the better tool.
 | The HDF5 C library | needed | not used |
 | `matread(path)` gives a `Dict` | yes | yes |
 | `datetime`, `string` | full values | full values |
-| `table`, `categorical` | full values | class and properties only |
+| `table`, `categorical` | full values | full values |
+| function handles | full values | class and properties only |
 | sparse arrays | yes | no |
 | works in a small compiled program | no | yes |
 

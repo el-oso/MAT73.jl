@@ -23,7 +23,8 @@ start with `MATLAB_`.
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
 | `datetime` | `Array{DateTime,N}` |
-| `string` | `Array{String,N}` |
+| `string`, `categorical` | `Array{String,N}` |
+| `table` | a `NamedTuple` of columns |
 
 ## Boxes with mixed contents
 
@@ -104,6 +105,40 @@ names = matread(f, "names", Matrix{String})   # or matread(f, "names")
 
 You get one `String` for each element, in the shape MATLAB used.
 
+A `categorical` reads as text too. MATLAB keeps a list of the choices and one number for each
+element, counting into that list. You get the text of the choice.
+
+### Tables
+
+**A table reads as a named tuple of columns.**
+
+Think of a filing cabinet. Each drawer has a label on the front and holds one kind of paper.
+You take out a whole drawer, not one sheet.
+
+A named tuple of vectors is already a column table, so anything that reads the Tables.jl
+interface takes the result as it is. This package needs no dependency for that.
+
+```julia
+t = matread(f, "flights")     # every column, with the types taken from the file
+t.Customer
+
+using DataFrames
+DataFrame(t)
+```
+
+For a small compiled program you state the columns and their types. Each type is the type of
+a whole column, so it is a `Vector`:
+
+```julia
+t = matread(f, "flights", NamedTuple{
+    (:FlightNum, :Customer),
+    Tuple{Vector{Float64}, Vector{String}},
+})
+```
+
+You may ask for some of the columns only, in any order. A name the table does not have stops
+with an error.
+
 ## Empty arrays
 
 **An empty array keeps its shape.**
@@ -179,10 +214,13 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 - **Sparse arrays.** When this is added, `SparseArrays` must be an optional dependency. It
   pulls in a library that looks up files on disk when it starts. A small compiled program then
   stops before it runs, if it cannot find those files. So it must stay off the normal path.
-- **Objects of the MATLAB types** `table`, `categorical`, `duration` and function handles.
-  These are objects like any other. Their class and their properties read correctly. Building
-  the value that MATLAB shows needs a rule for each type, and only `datetime` and `string`
-  have one so far. Classes you write yourself need no such rule.
+- **Objects of the MATLAB types** `duration`, `calendarDuration` and function handles. These
+  are objects like any other. Their class and their properties read correctly. Building the
+  value that MATLAB shows needs a rule for each type, and only `datetime`, `string`,
+  `categorical` and `table` have one so far. Classes you write yourself need no such rule.
+- **An element of a `categorical` with no choice.** MATLAB shows it as `<undefined>`. There
+  is no text for it, so this stops with an error rather than giving back an empty one.
+- **The row names of a table.** Only the columns are read.
 - **The default value of a property.** A class can give a property a value in its own
   definition. MATLAB keeps those values in a part of the table this package does not read
   yet, so an object that never set the property lists no property at all.

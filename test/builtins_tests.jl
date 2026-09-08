@@ -33,13 +33,63 @@ end
     @test_throws "not a MATLAB datetime" matread(f, "double", Matrix{DateTime})
 end
 
-@testitem "a table still reads as a Dict of its properties" setup = [Fixtures] begin
-    # No rule is known for a table, so it stays a set of named values.
-    f = matopen(fixture("struct_table_datetime.mat"))
-    @test matobjectclass(f, "s/testTable") == "table"
+@testitem "a table reads as a named tuple of columns" setup = [Fixtures] begin
+    using Dates: DateTime
+    import MAT
+    import Tables
+
+    path = fixture("struct_table_datetime.mat")
+    f = matopen(path)
+    ref = MAT.matread(path)["s"]["testTable"]
+
     t = matread(f, "s/testTable")
-    @test t isa Dict{String, Any}
-    @test "varnames" in keys(t)
+    @test t isa NamedTuple
+    @test keys(t) == (:FlightNum, :Customer, :Date, :Rating, :Comment)
+    for name in keys(t)
+        @test t[name] == ref[name]
+    end
+
+    # A named tuple of vectors is a column table on its own.
+    @test Tables.istable(t)
+    @test Tables.columnnames(Tables.columns(t)) == keys(t)
+end
+
+@testitem "a table reads with the column types given" setup = [Fixtures] begin
+    import MAT
+
+    path = fixture("struct_table_datetime.mat")
+    f = matopen(path)
+    ref = MAT.matread(path)["s"]["testTable"]
+
+    # A subset, in an order the file does not use.
+    t = matread(
+        f, "s/testTable",
+        NamedTuple{(:Customer, :FlightNum), Tuple{Vector{String}, Vector{Float64}}},
+    )
+    @test t isa NamedTuple{(:Customer, :FlightNum), Tuple{Vector{String}, Vector{Float64}}}
+    @test t.Customer == ref[:Customer]
+    @test t.FlightNum == ref[:FlightNum]
+end
+
+@testitem "asking a table for a column it does not have is an error" setup = [Fixtures] begin
+    f = matopen(fixture("struct_table_datetime.mat"))
+    @test_throws "no column named \"Missing\"" matread(
+        f, "s/testTable", NamedTuple{(:Missing,), Tuple{Vector{Float64}}}
+    )
+    @test_throws "is not a MATLAB table" matread(
+        f, "s/testDatetime", NamedTuple{(:a,), Tuple{Vector{Float64}}}
+    )
+end
+
+@testitem "a categorical reads as the text of each choice" setup = [Fixtures] begin
+    import MAT
+
+    path = fixture("struct_table_datetime.mat")
+    f = matopen(path)
+    columns = matread(f, "s/testTable/data", Matrix{MAT73.MatRef})
+    @test matobjectclass(f, columns[4]) == "categorical"
+    got = matread(f, columns[4], Matrix{String})
+    @test vec(got) == MAT.matread(path)["s"]["testTable"][:Rating]
 end
 
 @testitem "a string reads as a String" setup = [Fixtures] begin

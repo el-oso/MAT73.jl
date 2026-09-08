@@ -118,6 +118,13 @@ function lookup(f::MatFile, path::String)
     return addr
 end
 
+"""
+The value of `MATLAB_object_decode` that marks a `classdef` instance. The other values, 1 and
+2, mark a function handle and an old-style object, and both of those hold their own values in
+a group rather than pointing into the subsystem.
+"""
+const MOBJECT_MCOS = 3
+
 "The object ids a `classdef` variable refers to, and the subsystem it refers into."
 function objectids(f::MatFile, oi::ObjInfo)
     oi.nd == 2 || error("a MATLAB object variable should be a 1xN index array, not rank ", oi.nd)
@@ -136,7 +143,10 @@ Reading the tag costs a read of the values, so the shape is checked first: an in
 a single row or a single column, never a wider one.
 """
 function isobjectref(f::MatFile, oi::ObjInfo)
-    iszero(oi.mobject) || return true
+    # A function handle and an old-style object are also marked, but each is a group holding
+    # its own values, not an index into the subsystem.
+    oi.mobject == MOBJECT_MCOS && return true
+    iszero(oi.mobject) || return false
     (oi.mclass == "uint32" && oi.nd == 2 && !oi.mempty) || return false
     (matdim(oi.dims, 1, 2) == 1 || matdim(oi.dims, 2, 2) == 1) || return false
     return !isempty(objectids(f, oi))
@@ -250,7 +260,11 @@ function matkeys(f::MatFile, path::String)
     return groupentries(f.h5, oi)[1]
 end
 
-matkeys(f::MatFile, r::MatRef) = groupentries(f.h5, r.addr)[1]
+function matkeys(f::MatFile, r::MatRef)
+    oi = objinfo(f.h5, r.addr)
+    isobjectref(f, oi) && return objectkeys(f, oi)
+    return groupentries(f.h5, oi)[1]
+end
 
 """
     matclass(f, name) -> MatClass

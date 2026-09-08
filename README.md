@@ -117,7 +117,8 @@ in the opposite order. The two effects cancel.
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
 | `datetime` | `Array{DateTime,N}` |
-| `string` | `Array{String,N}` |
+| `string`, `categorical` | `Array{String,N}` |
+| `table` | a `NamedTuple` of columns |
 
 ## Boxes with mixed contents
 
@@ -158,8 +159,35 @@ matread(f, "obj/a", Matrix{Float64})      # one property, by path
 Properties added later with `addprop` are in the list too. An object held by another object
 is found as well.
 
-A `datetime` and a `string` are objects too, and the package knows the rule for each. They
-read as `Array{DateTime,N}` and `Array{String,N}`.
+A `datetime`, a `string`, a `categorical` and a `table` are objects too, and the package knows
+the rule for each.
+
+## Tables
+
+**A table reads as a named tuple of columns.**
+
+A named tuple of vectors is already a column table, so anything that reads the Tables.jl
+interface takes the result as it is. This package needs no dependency for that.
+
+```julia
+t = matread(f, "flights")     # every column, with the types taken from the file
+t.Customer
+
+using DataFrames
+DataFrame(t)
+```
+
+For a small compiled program you state the columns and their types. Each type is the type of
+a whole column, so it is a `Vector`:
+
+```julia
+t = matread(f, "flights", NamedTuple{
+    (:FlightNum, :Customer),
+    Tuple{Vector{Float64}, Vector{String}},
+})
+```
+
+You may ask for some of the columns only, in any order.
 
 ## Writing
 
@@ -183,10 +211,13 @@ come first, because a quiet limit is easy to miss.
 The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
 - **Sparse arrays.**
-- **Objects of the MATLAB types** `table`, `categorical`, `duration` and function handles.
-  The package reads their class and their properties. It cannot build the value that MATLAB
-  shows. That step needs a rule for each type, and only `datetime` and `string` have one so
-  far.
+- **Objects of the MATLAB types** `duration`, `calendarDuration` and function handles. The
+  package reads their class and their properties. It cannot build the value that MATLAB
+  shows. That step needs a rule for each type, and only `datetime`, `string`, `categorical`
+  and `table` have one so far.
+- **An element of a `categorical` with no choice.** MATLAB shows it as `<undefined>`. There
+  is no text for it, so this stops with an error.
+- **The row names of a table.** Only the columns are read.
 - **The default value of a property.** A class can give a property a value in its own
   definition. The package does not read those, so an object that never set the property
   lists no property at all.
