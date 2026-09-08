@@ -92,12 +92,17 @@ verifies, so a wrong one is rejected rather than tolerated.
 
 ## What is not read yet
 
-One limitation is silent, so it comes first:
+Three limitations are silent, so they come first. Each answers a slightly different question
+than the one you asked, rather than raising.
 
 - **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
-  not necessarily MATLAB's. Nothing raises; the names and values are right, the order may not
-  be. MATLAB's order lives in the `MATLAB_fields` attribute, a variable-length string array
-  that needs the global heap.
+  not necessarily MATLAB's. The names and values are right, the order may not be. MATLAB's
+  order lives in the `MATLAB_fields` attribute, a variable-length string array that needs the
+  global heap.
+- **Object arrays.** An object variable may name several instances; only the first is
+  followed, so `matkeys` and a property path describe that one.
+- **Dynamic properties**, those added with `addprop`, live in a region of the subsystem tables
+  this parser reads past, so they are missing from `matkeys` rather than reported.
 
 The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 
@@ -112,7 +117,12 @@ The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
   units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
   its two surrogates. The `String` method decodes properly; MAT.jl decodes char matrices to
   one `String` per row, which this package does not.
+- **Properties stored inline.** A property whose value is an enumeration or a small attribute
+  lives in the tables rather than in the cell array; reading one raises, since only
+  cell-valued properties have somewhere to point at.
 - **Compression on write.** Written datasets are contiguous and uncompressed.
+
+`keys(f)` lists MATLAB's own entries — `#refs#` and `#subsystem#` — alongside your variables.
 
 Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
 deflate and shuffle. MATLAB writes none of these, but `h5repack` and other HDF5 writers do.

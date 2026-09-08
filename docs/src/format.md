@@ -97,12 +97,15 @@ files are larger than MATLAB's own.
 
 ## What is not handled
 
-One limitation is silent, so it comes first:
+Three limitations are silent, so they come first. Each gives a right answer to a slightly
+different question than the one you asked.
 
 - **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
-  not necessarily MATLAB's. Nothing raises; the names and values are right, the order may not
-  be. MATLAB's order lives in the `MATLAB_fields` attribute, a variable-length string array
-  that needs the global heap. Sort the names yourself if you depend on the order.
+  not necessarily MATLAB's. The names and values are right, the order may not be. MATLAB's
+  order lives in the `MATLAB_fields` attribute, a variable-length string array that needs the
+  global heap.
+- **Object arrays** name several instances; only the first is described. See below.
+- **Dynamic properties** are absent from `matkeys` rather than reported. See below.
 
 The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 
@@ -113,13 +116,27 @@ The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
   These are MCOS objects like any `classdef` instance, and their class and properties read
   fine, but reconstructing the value MATLAB would show means knowing what each built-in class
   does with its properties. `classdef` instances of your own classes have no such layer.
+- **Object arrays.** An object variable may name several instances; only the first is
+  followed, so `matkeys` and a property path describe that one.
+- **Dynamic properties**, those added with `addprop`. They are held in a region of the
+  subsystem tables this parser reads past, so they are missing from `matkeys` rather than
+  reported.
+- **Properties stored inline.** A property whose value is an enumeration or a small attribute
+  is held in the tables rather than in the cell array, and reading one raises. Only
+  cell-valued properties have somewhere to point at.
 - **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
   units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
   its two surrogates. The `String` method decodes properly. MAT.jl instead decodes a char
   matrix to one `String` per row; this package returns what MATLAB stores.
 
+- **Compression on write.** Written datasets are contiguous and uncompressed, so files are
+  larger than MATLAB's own.
+
 Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
 deflate and shuffle. MATLAB writes none of these, though `h5repack` and other HDF5 writers do.
+
+`keys(f)` lists MATLAB's own entries — `#refs#` and `#subsystem#` — alongside your variables.
+They are where cell contents and object tables live, and skipping them is left to the caller.
 
 Rank is capped at 8 dimensions and a filter pipeline at 4 entries, both far above anything
 MATLAB produces.
