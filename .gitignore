@@ -1,3 +1,8 @@
 Manifest.toml
 test/Manifest.toml
+trim/Manifest.toml
 juliac/matsum
+docs/build
+docs/node_modules
+docs/.vitepress
+docs/package-lock.json

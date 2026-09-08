@@ -1,12 +1,18 @@
-# `--trim=safe` compatibility is a requirement of this package, so it is checked here rather
-# than only in a manual build. TrimCheck runs the same reachability analysis as the compiler.
+# Static half of the trim gate: run the `--trim=safe` verifier over every entry point.
 #
-# It runs the verifier pass a real build runs, over one root signature at a time, so a failure
-# here is a failure of the build too. What it does not cover is linking and startup, which is
-# why `juliac/build.jl` exists alongside it.
+# It lives outside the package test environment because TrimCheck needs the `Compiler` stdlib
+# that ships with Julia 1.12, and the package itself supports 1.10. Putting it in
+# `test/Project.toml` makes the whole suite unresolvable on the LTS.
+#
+# Run as: julia --project=trim trim/trimcheck.jl
+#
+# TrimCheck runs the same verifier pass a real build runs, so a failure here is a failure of
+# the build too. It neither links nor runs, which is what `juliac/build.jl` adds.
 
-@testitem "entry points are trim-safe" tags = [:trim] begin
-    using TrimCheck
+using Test
+using TrimCheck
+
+@testset "entry points are trim-safe" begin
     @validate(
         init = begin
             using MAT73

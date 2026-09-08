@@ -45,10 +45,9 @@ jobs:
           parallel-finished: true
 
   trim:
-    # The authoritative `--trim=safe` gate. The TrimCheck test item is a dev-time heuristic:
-    # it analyses stock Base while juliac raises max_args, and it does not model finalizers,
-    # so only a real build settles whether a trimmed binary links and runs.
-    name: juliac --trim=safe
+    # Both halves of the `--trim=safe` gate. They live outside the test matrix because
+    # TrimCheck needs the Compiler stdlib from Julia 1.12, while the package supports 1.10.
+    name: --trim=safe
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,5 +56,9 @@ jobs:
           version: '1.12'   # the juliac driver ships with Julia from 1.12
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-buildpkg@v1
-      - name: Build and compare against the Julia path
+      - name: Verify every entry point
+        run: |
+          julia --project=trim -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+          julia --project=trim trim/trimcheck.jl
+      - name: Build a binary and compare against the Julia path
         run: julia --project=. juliac/build.jl
