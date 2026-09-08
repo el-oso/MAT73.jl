@@ -1,7 +1,10 @@
 # Build `entry.jl` with `juliac --trim=safe` and check the binary against the same read done
-# in Julia. This is the authoritative trim gate: TrimCheck analyses stock Base and does not
-# model finalizers, while `juliac` raises `max_args` and roots every reachable one, so the two
-# can disagree in both directions.
+# in Julia.
+#
+# This covers what the TrimCheck test item cannot. TrimCheck runs the same verifier pass, so
+# it reports the same errors, but it neither links nor runs, and it roots one signature rather
+# than `@main` plus every loaded package's `__init__`. Code that verifies clean can still fail
+# to link, or abort at startup in a JLL's `__init__`.
 #
 # Run as: julia --project=. juliac/build.jl
 #

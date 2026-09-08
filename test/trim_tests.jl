@@ -1,9 +1,9 @@
 # `--trim=safe` compatibility is a requirement of this package, so it is checked here rather
 # than only in a manual build. TrimCheck runs the same reachability analysis as the compiler.
 #
-# It is a dev-time heuristic, not the last word: it does not model finalizers, and it checks
-# stock Base while `juliac` raises `max_args`. The authoritative gate is the real juliac build
-# in CI. A failure here is still a real failure.
+# It runs the verifier pass a real build runs, over one root signature at a time, so a failure
+# here is a failure of the build too. What it does not cover is linking and startup, which is
+# why `juliac/build.jl` exists alongside it.
 
 @testitem "entry points are trim-safe" tags = [:trim] begin
     using TrimCheck

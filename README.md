@@ -74,9 +74,15 @@ libhdf5 and is therefore an oracle independent of this implementation, over fixt
 itself wrote. A test item runs TrimCheck over every entry point, since `--trim=safe` support
 is a requirement rather than a nice-to-have.
 
-TrimCheck is a dev-time heuristic and not the last word: it does not model finalizers, and it
-analyses stock Base while `juliac` raises `max_args`. The authoritative gate is a real build,
-which CI runs and which you can run yourself:
+TrimCheck runs the same compiler pass a real build does — `typeinf_ext_toplevel` under
+`TRIM_SAFE`, with the same `juliac-trim-base.jl` patches applied — so it reports the same
+verifier errors, finalizers included. What it does not do is **link or run**, and it roots
+only the one signature you give it rather than `@main` plus every loaded package's `__init__`.
+Both of those have produced real failures in code that verified clean: an artifact-backed JLL
+whose `__init__` aborts before `main`, and a `ccall` whose library operand is module-qualified,
+which verifies and then throws at run time.
+
+So the build is a separate gate, not a stricter analyser. CI runs it, and so can you:
 
 ```
 julia --project=. juliac/build.jl
