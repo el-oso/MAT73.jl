@@ -82,15 +82,19 @@ verifies, so a wrong one is rejected rather than tolerated.
 
 ## What is not read yet
 
-Each of these throws an error naming what is unsupported, or reports `MAT_UNSUPPORTED`.
+One limitation is silent, so it comes first:
+
+- **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
+  not necessarily MATLAB's. Nothing raises; the names and values are right, the order may not
+  be. MATLAB's order lives in the `MATLAB_fields` attribute, a variable-length string array
+  that needs the global heap.
+
+The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 
 - **Sparse arrays.** Deliberately a limitation rather than an extension for now: there is no
   sparse code to gate. When it is written, `SparseArrays` should be a weak dependency —
   it pulls `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before
   `main` when the depot is unreachable, so it must stay off the default path.
-- **Struct field order.** Fields come back in the order the group stores them, not MATLAB's.
-  MATLAB's order lives in the `MATLAB_fields` attribute, a variable-length string array that
-  needs the global heap.
 - **MATLAB objects** — `classdef` instances, `table`, `datetime`, `string` arrays and function
   handles. These live in `#subsystem#` in MATLAB's own MCOS encoding.
 - **Char matrices.** Only a `1xN` char array has a single string form; a char matrix is

@@ -75,11 +75,15 @@ files are larger than MATLAB's own.
 
 ## What is not handled
 
-Each of these raises an error naming what is unsupported, or reports `MAT_UNSUPPORTED`.
+One limitation is silent, so it comes first:
 
-- **Struct field order.** Fields are listed in the order the group stores them, not MATLAB's.
-  MATLAB's order lives in the `MATLAB_fields` attribute, which is a variable-length string
-  array and so needs the global heap.
+- **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
+  not necessarily MATLAB's. Nothing raises; the names and values are right, the order may not
+  be. MATLAB's order lives in the `MATLAB_fields` attribute, a variable-length string array
+  that needs the global heap. Sort the names yourself if you depend on the order.
+
+The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
+
 - **Sparse arrays.** When implemented, `SparseArrays` will be a weak dependency: it pulls
   `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before `main`
   when the depot is unreachable, so it must stay off the default path.
