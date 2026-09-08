@@ -61,6 +61,15 @@ matkeys(f, "s")                           # struct field names
 matread(f, "s/a", Matrix{Float64})        # a field by path, nesting allowed
 ```
 
+A `classdef` object holds only indices into MATLAB's own object tables in `#subsystem#`. That
+indirection is resolved, so an object reads like a struct too:
+
+```julia
+matobjectclass(f, "obj")                  # "TestClasses.BasicClass"
+matkeys(f, "obj")                         # property names
+matread(f, "obj/a", Matrix{Float64})      # a property by path
+```
+
 Storage: superblock versions 0 and 2, version-1 and version-2 object headers with
 continuation blocks, old-style groups and compact groups made of link messages, and compact,
 contiguous or chunked layout with the deflate and shuffle filters. MATLAB writes the first of
@@ -96,8 +105,9 @@ The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
   sparse code to gate. When it is written, `SparseArrays` should be a weak dependency —
   it pulls `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before
   `main` when the depot is unreachable, so it must stay off the default path.
-- **MATLAB objects** — `classdef` instances, `table`, `datetime`, `string` arrays and function
-  handles. These live in `#subsystem#` in MATLAB's own MCOS encoding.
+- **Built-in MATLAB objects** — `table`, `datetime`, `string` arrays and function handles.
+  Their class and properties read like any object's, but turning those properties back into
+  the value MATLAB shows needs per-class knowledge that is not here.
 - **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
   units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
   its two surrogates. The `String` method decodes properly; MAT.jl decodes char matrices to

@@ -49,6 +49,20 @@ const MAXFILTERS = 4
 "A group entry: a name and the address of the object header it points at."
 const Link = Tuple{String, Int}
 
+"""
+    MatRef
+
+A reference to another object in the same file. A MATLAB cell array is stored as an array of
+these, and so is each field of a struct array, because the elements have no common type.
+
+Pass one back to [`matread`](@ref), [`matclass`](@ref) or [`matsize`](@ref) exactly as you
+would a variable name. Keeping the reference rather than following it is what lets a
+heterogeneous container be read with a concrete type at every step.
+"""
+struct MatRef
+    addr::Int
+end
+
 # The object-header fields a read needs. A fixed layout keeps inference concrete.
 #
 # The filter pipeline is a fixed-size tuple rather than a vector of filter objects: a

@@ -36,6 +36,27 @@ matread(f, "s/a", Matrix{Float64})         # a field by path, nested paths allow
 
 Nesting works the same way: a cell inside a cell yields another `Array{MatRef}`.
 
+## MATLAB objects
+
+A `classdef` instance holds no data of its own. The variable is a `uint32` array of indices,
+and the values live in `#subsystem#` behind MATLAB's own object tables — a format MathWorks
+does not document, [reverse-engineered by the
+community](https://github.com/foreverallama/matio/blob/main/docs/subsystem_data_format.md).
+
+The indirection is resolved here, so an object behaves like a struct:
+
+```julia
+matobjectclass(f, "obj")             # "TestClasses.BasicClass", namespace included
+matkeys(f, "obj")                    # property names
+matread(f, "obj/a", Matrix{Float64}) # a property by path
+```
+
+`matclass` still reports `MAT_UNSUPPORTED` for an object, because it answers the
+plain-array question and an object is not a plain array; `matobjectclass` is the one to ask.
+
+Only properties whose value is stored in the subsystem's cell array can be read. A property
+held inline — an enumeration or a small attribute — raises rather than being guessed at.
+
 An empty array is not stored as zero elements. MATLAB writes a `uint64` vector holding the
 dimensions, tagged with `MATLAB_empty`, which is how the shape survives.
 
@@ -88,8 +109,10 @@ The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 - **Sparse arrays.** When implemented, `SparseArrays` will be a weak dependency: it pulls
   `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before `main`
   when the depot is unreachable, so it must stay off the default path.
-- **MATLAB objects** — `classdef` instances, `table`, `datetime`, `string` arrays and function
-  handles. These live in `#subsystem#` in MATLAB's own MCOS encoding.
+- **Built-in MATLAB objects** — `table`, `datetime`, `string` arrays and function handles.
+  These are MCOS objects like any `classdef` instance, and their class and properties read
+  fine, but reconstructing the value MATLAB would show means knowing what each built-in class
+  does with its properties. `classdef` instances of your own classes have no such layer.
 - **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
   units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
   its two surrogates. The `String` method decodes properly. MAT.jl instead decodes a char

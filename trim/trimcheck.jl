@@ -34,6 +34,7 @@ using TrimCheck
         MAT73.matclass(MAT73.MatFile, MAT73.MatRef),
         MAT73.matsize(MAT73.MatFile, MAT73.MatRef),
         MAT73.matkeys(MAT73.MatFile, String),
+        MAT73.matobjectclass(MAT73.MatFile, String),
         Base.push!(MAT73.MatWriter, String, Matrix{Float64}),
         Base.push!(MAT73.MatWriter, String, Matrix{Bool}),
         MAT73.matwrite(String, MAT73.MatWriter),

@@ -7,6 +7,7 @@ matopen
 matclass
 matsize
 matkeys
+matobjectclass
 matread
 MAT73.MatFile
 MAT73.MatClass

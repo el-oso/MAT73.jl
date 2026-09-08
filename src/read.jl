@@ -47,20 +47,6 @@ function classof(s::String)
 end
 
 """
-    MatRef
-
-A reference to another object in the same file. A MATLAB cell array is stored as an array of
-these, and so is each field of a struct array, because the elements have no common type.
-
-Pass one back to [`matread`](@ref), [`matclass`](@ref) or [`matsize`](@ref) exactly as you
-would a variable name. Keeping the reference rather than following it is what lets a
-heterogeneous container be read with a concrete type at every step.
-"""
-struct MatRef
-    addr::Int
-end
-
-"""
     MatFile
 
 An open MATLAB v7.3 file together with its top-level variable names and their object-header
@@ -70,6 +56,20 @@ struct MatFile
     h5::H5File
     names::Vector{String}
     addrs::Vector{Int}
+    # The subsystem is parsed on first use and kept here. A vector of at most one element is
+    # the cache: an immutable file object with a mutable field would not be concrete.
+    mcos::Vector{McosState}
+end
+
+"""
+Read an array at a reference, skipping the MATLAB class checks. Used for the subsystem, whose
+cells are not MATLAB values in their own right. The rank is given rather than taken from the
+file so that the return type is concrete.
+"""
+function readarray(f::MatFile, r::MatRef, ::Type{Array{T, N}}) where {T, N}
+    oi = objinfo(f.h5, r.addr)
+    oi.nd == N || error("subsystem cell has rank ", oi.nd, ", not ", N)
+    return readvalues(f, oi, "subsystem cell", Array{T, N})
 end
 
 """
@@ -80,7 +80,7 @@ Open a MATLAB v7.3 (HDF5-based) `.mat` file and read its top-level variable list
 function matopen(path::String)
     h5 = open_h5(path)
     names, addrs = rootentries(h5)
-    return MatFile(h5, names, addrs)
+    return MatFile(h5, names, addrs, McosState[])
 end
 
 Base.keys(f::MatFile) = copy(f.names)
@@ -94,18 +94,83 @@ function lookup(f::MatFile, path::String)
     addrs = f.addrs
     addr = -1
     for part in split(path, '/'; keepempty = false)
-        addr = -1
+        found = -1
         for i in eachindex(names)
             if names[i] == part
-                addr = addrs[i]
+                found = addrs[i]
                 break
             end
         end
-        addr >= 0 || error("no variable or field named \"", path, "\" in this file")
+        if found < 0 && addr >= 0
+            # Not a group member: a MATLAB object's properties live in the subsystem, and
+            # are reached by the same path syntax as a struct's fields.
+            oi = objinfo(f.h5, addr)
+            iszero(oi.mobject) && error("no variable or field named \"", path, "\" in this file")
+            found = objectproperty(f, oi, String(part))
+        end
+        found >= 0 || error("no variable or field named \"", path, "\" in this file")
+        addr = found
         names, addrs = groupentries(f.h5, addr)
     end
     addr >= 0 || error("empty path")
     return addr
+end
+
+"The object ids a `classdef` variable refers to, and the subsystem it refers into."
+function objectids(f::MatFile, oi::ObjInfo)
+    oi.nd == 2 || error("a MATLAB object variable should be a 1xN index array, not rank ", oi.nd)
+    return mcos_objectids(vec(readvalues(f, oi, "object", Matrix{UInt32})))
+end
+
+"""
+    matobjectclass(f, name) -> String
+
+Full class name of a MATLAB object, namespace included, as in `TestClasses.BasicClass`. An
+empty string when the variable is not an object.
+"""
+function matobjectclass(f::MatFile, key)
+    oi = objinfo(f.h5, address(f, key))
+    iszero(oi.mobject) && return ""
+    ids = objectids(f, oi)
+    isempty(ids) && return oi.mclass
+    t = mcos(f).tables
+    name = mcos_classname(t, mcos_objectclass(t, ids[1]))
+    return isempty(name) ? oi.mclass : name
+end
+
+"Property names of a MATLAB object, in the order its property map lists them."
+function objectkeys(f::MatFile, oi::ObjInfo)
+    ids = objectids(f, oi)
+    isempty(ids) && return String[]
+    t = mcos(f).tables
+    out = String[]
+    for (nameidx, _, _) in mcos_props(t, ids[1])
+        (nameidx >= 1 && nameidx <= length(t.names)) && push!(out, t.names[nameidx])
+    end
+    return out
+end
+
+"""
+Address of one property of a MATLAB object. Only properties whose value is stored in the
+subsystem's cell array can be addressed; an enumeration or an inline attribute is a value, not
+an object, so it has no address.
+"""
+function objectproperty(f::MatFile, oi::ObjInfo, prop::String)
+    ids = objectids(f, oi)
+    isempty(ids) && error("this MATLAB object refers to no instance")
+    state = mcos(f)
+    t = state.tables
+    for (nameidx, kind, value) in mcos_props(t, ids[1])
+        (nameidx >= 1 && nameidx <= length(t.names)) || continue
+        t.names[nameidx] == prop || continue
+        kind == MCOS_CELL ||
+            error("property \"", prop, "\" is stored inline, not as a value this package can address")
+        # Index 0 names the third cell: the first two hold the metadata and a placeholder.
+        i = value + 3
+        (i >= 1 && i <= length(state.cells)) || error("property \"", prop, "\" points outside the subsystem")
+        return state.cells[i].addr
+    end
+    return error("no property named \"", prop, "\" on this MATLAB object")
 end
 
 """
@@ -114,7 +179,13 @@ end
 Names of the members of a group: the fields of a struct, or the variables at the top level
 when `path` is empty.
 """
-matkeys(f::MatFile, path::String) = isempty(path) ? copy(f.names) : groupentries(f.h5, lookup(f, path))[1]
+function matkeys(f::MatFile, path::String)
+    isempty(path) && return copy(f.names)
+    addr = lookup(f, path)
+    oi = objinfo(f.h5, addr)
+    iszero(oi.mobject) || return objectkeys(f, oi)
+    return groupentries(f.h5, oi)[1]
+end
 
 matkeys(f::MatFile, r::MatRef) = groupentries(f.h5, r.addr)[1]
 
