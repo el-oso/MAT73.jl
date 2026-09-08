@@ -6,9 +6,11 @@
 matopen
 matclass
 matsize
+matkeys
 matread
 MAT73.MatFile
 MAT73.MatClass
+MAT73.MatRef
 ```
 
 ## Writing

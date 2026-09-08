@@ -14,6 +14,26 @@ those attributes say what they mean.
 | complex numeric | `Array{Complex{T},N}` |
 | `char`, `1xN` | `String` |
 | empty arrays | shape preserved, so a `0x3` stays `0x3` |
+| `cell` | `Array{MatRef,N}`, one reference per element |
+| `struct` | a group; fields by path, `matkeys` lists them |
+| struct arrays | fields are `Array{MatRef,N}`, one reference per element |
+
+## Containers
+
+A cell array's elements have no common type, and neither do a struct array's, so following
+them eagerly would mean returning `Any`. Instead they come back as [`MatRef`](@ref) values,
+and you read each one with the type you expect — the same discipline as everywhere else:
+
+```julia
+cells = matread(f, "c", Matrix{MatRef})
+matclass(f, cells[1])                      # survey before committing to a type
+matread(f, cells[1], Matrix{Float64})      # follow it
+
+matkeys(f, "s")                            # field names of a struct
+matread(f, "s/a", Matrix{Float64})         # a field by path, nested paths allowed
+```
+
+Nesting works the same way: a cell inside a cell yields another `Array{MatRef}`.
 
 An empty array is not stored as zero elements. MATLAB writes a `uint64` vector holding the
 dimensions, tagged with `MATLAB_empty`, which is how the shape survives.
@@ -57,9 +77,9 @@ files are larger than MATLAB's own.
 
 Each of these raises an error naming what is unsupported, or reports `MAT_UNSUPPORTED`.
 
-- **Cell arrays** and **structs**, including struct arrays. Both need traversal of non-root
-  groups and dereferencing of HDF5 object references into `#refs#`; structs additionally need
-  variable-length string attributes, which live in the global heap.
+- **Struct field order.** Fields are listed in the order the group stores them, not MATLAB's.
+  MATLAB's order lives in the `MATLAB_fields` attribute, which is a variable-length string
+  array and so needs the global heap.
 - **Sparse arrays.** When implemented, `SparseArrays` will be a weak dependency: it pulls
   `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before `main`
   when the depot is unreachable, so it must stay off the default path.

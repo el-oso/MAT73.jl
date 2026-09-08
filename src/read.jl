@@ -47,6 +47,20 @@ function classof(s::String)
 end
 
 """
+    MatRef
+
+A reference to another object in the same file. A MATLAB cell array is stored as an array of
+these, and so is each field of a struct array, because the elements have no common type.
+
+Pass one back to [`matread`](@ref), [`matclass`](@ref) or [`matsize`](@ref) exactly as you
+would a variable name. Keeping the reference rather than following it is what lets a
+heterogeneous container be read with a concrete type at every step.
+"""
+struct MatRef
+    addr::Int
+end
+
+"""
     MatFile
 
 An open MATLAB v7.3 file together with its top-level variable names and their object-header
@@ -71,12 +85,38 @@ end
 
 Base.keys(f::MatFile) = copy(f.names)
 
-function lookup(f::MatFile, name::String)
-    for i in eachindex(f.names)
-        f.names[i] == name && return f.addrs[i]
+"""
+Address of the object at `path`. A path may descend through groups with `/`, which is how a
+struct's fields are reached: `matread(f, "s/a", Matrix{Float64})`.
+"""
+function lookup(f::MatFile, path::String)
+    names = f.names
+    addrs = f.addrs
+    addr = -1
+    for part in split(path, '/'; keepempty = false)
+        addr = -1
+        for i in eachindex(names)
+            if names[i] == part
+                addr = addrs[i]
+                break
+            end
+        end
+        addr >= 0 || error("no variable or field named \"", path, "\" in this file")
+        names, addrs = groupentries(f.h5, addr)
     end
-    return error("no variable named \"", name, "\" in this file")
+    addr >= 0 || error("empty path")
+    return addr
 end
+
+"""
+    matkeys(f, path) -> Vector{String}
+
+Names of the members of a group: the fields of a struct, or the variables at the top level
+when `path` is empty.
+"""
+matkeys(f::MatFile, path::String) = isempty(path) ? copy(f.names) : groupentries(f.h5, lookup(f, path))[1]
+
+matkeys(f::MatFile, r::MatRef) = groupentries(f.h5, r.addr)[1]
 
 """
     matclass(f, name) -> MatClass
@@ -84,12 +124,20 @@ end
 The MATLAB class of variable `name`. Returns `MAT_UNSUPPORTED` rather than throwing for a
 class this package does not read, so a file can be surveyed before anything is read from it.
 """
-function matclass(f::MatFile, name::String)
-    oi = objinfo(f.h5, lookup(f, name))
+function matclass(f::MatFile, key)
+    oi = objinfo(f.h5, address(f, key))
     # A MATLAB object, or a sparse array, is not the plain class its attribute names.
     (iszero(oi.mobject) && oi.msparse < 0) || return MAT_UNSUPPORTED
     return classof(oi.mclass)
 end
+
+# A variable is named by a path or reached through a reference; both resolve to an address.
+@inline address(f::MatFile, path::String) = lookup(f, path)
+@inline address(::MatFile, r::MatRef) = r.addr
+
+# What to call the object in an error message.
+@inline keyname(path::String) = path
+@inline keyname(r::MatRef) = "referenced object"
 
 """
     matsize(f, name) -> Vector{Int}
@@ -99,9 +147,8 @@ Size of variable `name` in MATLAB's own dimension order.
 A `Vector` rather than a tuple: the rank is a property of the file, so a tuple would have a
 length only known at run time and the return type would not be concrete.
 """
-function matsize(f::MatFile, name::String)
-    oi = objinfo(f.h5, lookup(f, name))
-    return matsize(f.h5, oi)
+function matsize(f::MatFile, key)
+    return matsize(f.h5, objinfo(f.h5, address(f, key)))
 end
 
 function matsize(h5::H5File, oi::ObjInfo)
@@ -127,6 +174,7 @@ end
 @inline dtclass(::Type{<:AbstractFloat}) = DT_FLOAT
 @inline dtclass(::Type{<:Integer}) = DT_FIXED
 @inline dtclass(::Type{<:Complex}) = DT_COMPOUND
+@inline dtclass(::Type{MatRef}) = DT_REFERENCE
 
 function checkdatatype(oi::ObjInfo, ::Type{T}, name::String) where {T}
     want = dtclass(T)
@@ -165,6 +213,9 @@ end
 # would produce a `Bool` outside its two valid values.
 @inline readelem(::Type{Bool}, b::Vector{UInt8}, off::Int) = !iszero(readuint(b, off, 1))
 
+# An object reference is the address of another object header in the same file.
+@inline readelem(::Type{MatRef}, b::Vector{UInt8}, off::Int) = MatRef(Int(readuint(b, off, 8)))
+
 # A complex dataset is a compound of two members laid out real then imaginary, which is also
 # Julia's own layout, but reading the halves explicitly keeps this endian-correct.
 @inline function readelem(::Type{Complex{T}}, b::Vector{UInt8}, off::Int) where {T}
@@ -194,8 +245,9 @@ MATLAB stores its dimensions reversed and its elements column-major, so filling 
 in file order under the reversed dimensions reproduces the MATLAB array as written — no
 transpose is involved.
 """
-function matread(f::MatFile, name::String, ::Type{Array{T, N}}) where {T, N}
-    oi = objinfo(f.h5, lookup(f, name))
+function matread(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
+    name = keyname(key)
+    oi = objinfo(f.h5, address(f, key))
     iszero(oi.mobject) || error("variable \"", name, "\" is a MATLAB object, which is not read")
     oi.msparse < 0 || error("variable \"", name, "\" is sparse, which is not read")
 
@@ -235,8 +287,9 @@ a purely 7-bit string, and both are converted here.
 Only a `1xN` char array is a string; a char matrix is several rows and has no single string
 representation, so it is refused rather than flattened.
 """
-function matread(f::MatFile, name::String, ::Type{String})
-    oi = objinfo(f.h5, lookup(f, name))
+function matread(f::MatFile, key, ::Type{String})
+    name = keyname(key)
+    oi = objinfo(f.h5, address(f, key))
     oi.int_decode == 2 || error("variable \"", name, "\" is not a MATLAB char array")
     oi.mempty && return ""
 

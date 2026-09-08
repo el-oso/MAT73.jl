@@ -37,6 +37,7 @@ const DT_FIXED = 0
 const DT_FLOAT = 1
 const DT_STRING = 3
 const DT_COMPOUND = 6
+const DT_REFERENCE = 7
 
 # Filter identifiers, as HDF5 registers them.
 const FILTER_DEFLATE = 1
@@ -537,22 +538,30 @@ function walk_group!(names::Vector{String}, addrs::Vector{Int}, f::H5File, btree
 end
 
 """
-The top-level variables of a file. An old-style group indexes its names through a local heap
-and a B-tree; a compact group carries them directly as link messages.
+The members of the group whose header `oi` describes. An old-style group indexes its names
+through a local heap and a B-tree; a compact group carries them directly as link messages.
 """
-function rootentries(f::H5File)
+function groupentries(f::H5File, oi::ObjInfo)
     names = String[]
     addrs = Int[]
-    oi = objinfo(f, f.root)
     if oi.stab_btree >= 0
         walk_group!(names, addrs, f, oi.stab_btree, oi.stab_heap)
-    elseif !isempty(oi.links)
+    else
         for (name, addr) in oi.links
             push!(names, name)
             push!(addrs, addr)
         end
-    else
-        error("the root group has neither a symbol table nor link messages")
     end
     return names, addrs
+end
+
+groupentries(f::H5File, addr::Int) = groupentries(f, objinfo(f, addr))
+
+"True when this object header describes a group rather than a dataset."
+isgroup(oi::ObjInfo) = oi.stab_btree >= 0 || !isempty(oi.links)
+
+function rootentries(f::H5File)
+    oi = objinfo(f, f.root)
+    isgroup(oi) || error("the root group has neither a symbol table nor link messages")
+    return groupentries(f, oi)
 end

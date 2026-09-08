@@ -9,6 +9,9 @@
     function oracle(file, name)
         return h5_matopen(io -> h5_read(io, name), fixture(file))
     end
+
+    "MAT.jl unwraps a 1x1 variable to a scalar; a raw read keeps it a matrix."
+    boxed(x) = x isa AbstractArray ? x : fill(x, 1, 1)
 end
 
 @testitem "variable names match the oracle" setup = [Fixtures] begin
@@ -55,7 +58,7 @@ end
     @test_throws "datatype class" matread(f, "double", Matrix{Int64})
     @test_throws "opposite signedness" matread(f, "int32", Matrix{UInt32})
     @test_throws "rank" matread(f, "double", Vector{Float64})
-    @test_throws "no variable named" matread(f, "nope", Matrix{Float64})
+    @test_throws "no variable or field named" matread(f, "nope", Matrix{Float64})
 end
 
 @testitem "chunked and deflated data matches the oracle" setup = [Fixtures] begin
