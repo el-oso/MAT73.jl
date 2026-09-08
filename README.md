@@ -1,5 +1,8 @@
 # PureMAT.jl
 
+[![CI](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml)
+[![Coverage](https://coveralls.io/repos/github/el-oso/PureMAT.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureMAT.jl?branch=main)
+
 Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library, and from a
 binary built with `juliac --trim=safe`.
 
@@ -72,5 +75,13 @@ itself wrote. A test item runs TrimCheck over every entry point, since `--trim=s
 is a requirement rather than a nice-to-have.
 
 TrimCheck is a dev-time heuristic and not the last word: it does not model finalizers, and it
-analyses stock Base while `juliac` raises `max_args`. A real `juliac` build is the
-authoritative gate.
+analyses stock Base while `juliac` raises `max_args`. The authoritative gate is a real build,
+which CI runs and which you can run yourself:
+
+```
+julia --project=juliac -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+julia --project=juliac juliac/build.jl
+```
+
+That builds `juliac/entry.jl` with `--trim=safe` and fails unless the resulting binary prints
+the same thing as the ordinary Julia path.
