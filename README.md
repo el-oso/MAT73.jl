@@ -1,7 +1,7 @@
 # PureMAT.jl
 
 [![CI](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml)
-[![Coverage](https://coveralls.io/repos/github/el-oso/PureMAT.jl/badge.svg?branch=main)](https://coveralls.io/github/el-oso/PureMAT.jl?branch=main)
+[![Coverage](https://coveralls.io/repos/github/el-oso/PureMAT.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/PureMAT.jl?branch=master)
 
 Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library, and from a
 binary built with `juliac --trim=safe`.
