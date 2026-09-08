@@ -116,6 +116,7 @@ in the opposite order. The two effects cancel.
 | `struct` | fields by path; `matkeys` gives the names |
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
+| `datetime` | `Array{DateTime,N}` |
 
 ## Boxes with mixed contents
 
@@ -177,9 +178,9 @@ come first, because a quiet limit is easy to miss.
 The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
 - **Sparse arrays.**
-- **Objects of the MATLAB types** `table`, `datetime`, `string` and function handles. The
-  package reads their class and their properties. It cannot build the value that MATLAB shows.
-  That step needs a rule for each of those types.
+- **Objects of the MATLAB types** `table`, `string` and function handles. The package reads
+  their class and their properties. It cannot build the value that MATLAB shows. That step
+  needs a rule for each type, and only `datetime` has one so far.
 - **Properties kept in the table.** Most properties point to a value. Some small ones sit in
   the table itself. The package cannot read those.
 - **Text above code point 65535.** MATLAB keeps text as 16-bit units. `Array{Char,N}` gives

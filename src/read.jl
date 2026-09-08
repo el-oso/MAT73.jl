@@ -418,6 +418,14 @@ function readvalues(f::MatFile, oi::ObjInfo, name::String, ::Type{Array{T, N}}) 
 end
 
 """
+True when a dataset holds MATLAB text.
+
+An empty array carries no `MATLAB_int_decode` note, because it holds its dimensions rather
+than any characters. Its `MATLAB_class` note still says `char`, so that settles it.
+"""
+ischararray(oi::ObjInfo) = oi.int_decode == 2 || (oi.mempty && oi.mclass == "char")
+
+"""
     matread(f, name, Array{Char,N}) -> Array{Char,N}
 
 Read MATLAB text of any shape, one item at a time.
@@ -432,7 +440,7 @@ pair correctly.
 function matread(f::MatFile, key, ::Type{Array{Char, N}}) where {N}
     name = keyname(key)
     oi = objinfo(f.h5, address(f, key))
-    oi.int_decode == 2 || error("variable \"", name, "\" is not a MATLAB char array")
+    ischararray(oi) || error("variable \"", name, "\" is not a MATLAB char array")
     oi.mempty && return emptyarray(Array{Char, N}, matsize(f.h5, oi), name)
     oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
 
@@ -459,7 +467,7 @@ that case. It does not join the rows. Use the `Array{Char,N}` method instead.
 function matread(f::MatFile, key, ::Type{String})
     name = keyname(key)
     oi = objinfo(f.h5, address(f, key))
-    oi.int_decode == 2 || error("variable \"", name, "\" is not a MATLAB char array")
+    ischararray(oi) || error("variable \"", name, "\" is not a MATLAB char array")
     oi.mempty && return ""
 
     dims = matsize(f.h5, oi)

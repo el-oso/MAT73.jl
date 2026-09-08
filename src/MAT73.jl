@@ -17,6 +17,7 @@ A = matread(f, "A", Matrix{Float64}) # checked against the file
 module MAT73
 
 using Mmap
+using Dates: DateTime, Millisecond
 using ChunkCodecLibZlib: ZlibDecodeOptions
 using ChunkCodecLibZlib.ChunkCodecCore: try_decode!
 
@@ -28,6 +29,7 @@ include("hdf5.jl")
 include("chunked.jl")
 include("mcos.jl")
 include("read.jl")
+include("datetime.jl")
 include("macro.jl")
 include("convenience.jl")
 include("write.jl")

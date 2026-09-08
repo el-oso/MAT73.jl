@@ -100,8 +100,13 @@ function matread(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
     name = keyname(key)
 
-    # An object and a struct both read as a set of named values.
+    # An object and a struct both read as a set of named values, except for the MATLAB types
+    # this package knows a rule for.
     if !iszero(oi.mobject)
+        if matobjectclass(f, key) == DATETIME_CLASS
+            data = objinfo(f.h5, objectproperty(f, oi, "data"))
+            return readrank(f, key, DateTime, data.nd)
+        end
         out = Dict{String, Any}()
         for prop in objectkeys(f, oi)
             out[prop] = matread(f, MatRef(objectproperty(f, oi, prop)))

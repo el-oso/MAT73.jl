@@ -22,6 +22,7 @@ start with `MATLAB_`.
 | `struct` | fields by path; `matkeys` gives the names |
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
+| `datetime` | `Array{DateTime,N}` |
 
 ## Boxes with mixed contents
 
@@ -69,6 +70,19 @@ It holds the name you gave and the value. This package follows that step as well
 
 `matclass` still reports `MAT_UNSUPPORTED` for an object. That function answers one question:
 is this a plain array? An object is not. Ask `matobjectclass` instead.
+
+### Dates
+
+A MATLAB `datetime` is an object too, but this package knows the rule for it. Its `data`
+property counts milliseconds from 1 January 1970, so it reads as a `DateTime`:
+
+```julia
+using Dates
+t = matread(f, "when", Matrix{DateTime})   # or matread(f, "when")
+```
+
+A time zone on the MATLAB side is not applied. MATLAB may store a step smaller than a
+millisecond, which a `DateTime` cannot hold, and that part is dropped.
 
 ## Empty arrays
 
@@ -145,10 +159,10 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 - **Sparse arrays.** When this is added, `SparseArrays` must be an optional dependency. It
   pulls in a library that looks up files on disk when it starts. A small compiled program then
   stops before it runs, if it cannot find those files. So it must stay off the normal path.
-- **Objects of the MATLAB types** `table`, `datetime`, `string` and function handles. These
-  are objects like any other. Their class and their properties read correctly. Building the
-  value that MATLAB shows needs a rule for each of those types. Classes you write yourself
-  need no such rule.
+- **Objects of the MATLAB types** `table`, `string` and function handles. These are objects
+  like any other. Their class and their properties read correctly. Building the value that
+  MATLAB shows needs a rule for each type, and only `datetime` has one so far. Classes you
+  write yourself need no such rule.
 - **Properties kept in the table.** Most properties point to a value elsewhere. Some small
   ones sit in the table itself. Only the first kind has an address to follow, so the second
   kind stops with an error.

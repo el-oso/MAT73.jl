@@ -12,6 +12,7 @@
 using Test
 using TrimCheck
 
+
 @testset "entry points are trim-safe" begin
     @validate(
         init = begin
@@ -42,6 +43,7 @@ using TrimCheck
         MAT73.matread(MAT73.MatFile, String, Type{Matrix{Bool}}),
         MAT73.matread(MAT73.MatFile, String, Type{Matrix{ComplexF64}}),
         MAT73.matread(MAT73.MatFile, String, Type{String}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{MAT73.DateTime}}),
         MAT73.matread(MAT73.MatFile, String, Type{Matrix{MAT73.MatRef}}),
         MAT73.matread(MAT73.MatFile, MAT73.MatRef, Type{Matrix{Float64}}),
         MAT73.matread(MAT73.MatFile, MAT73.MatRef, Type{String}),
