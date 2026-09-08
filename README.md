@@ -117,6 +117,7 @@ in the opposite order. The two effects cancel.
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
 | `datetime` | `Array{DateTime,N}` |
+| `string` | `Array{String,N}` |
 
 ## Boxes with mixed contents
 
@@ -154,7 +155,11 @@ matkeys(f, "obj")                         # the property names
 matread(f, "obj/a", Matrix{Float64})      # one property, by path
 ```
 
-Properties added later with `addprop` are in the list too.
+Properties added later with `addprop` are in the list too. An object held by another object
+is found as well.
+
+A `datetime` and a `string` are objects too, and the package knows the rule for each. They
+read as `Array{DateTime,N}` and `Array{String,N}`.
 
 ## Writing
 
@@ -178,9 +183,13 @@ come first, because a quiet limit is easy to miss.
 The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
 - **Sparse arrays.**
-- **Objects of the MATLAB types** `table`, `string` and function handles. The package reads
-  their class and their properties. It cannot build the value that MATLAB shows. That step
-  needs a rule for each type, and only `datetime` has one so far.
+- **Objects of the MATLAB types** `table`, `categorical`, `duration` and function handles.
+  The package reads their class and their properties. It cannot build the value that MATLAB
+  shows. That step needs a rule for each type, and only `datetime` and `string` have one so
+  far.
+- **The default value of a property.** A class can give a property a value in its own
+  definition. The package does not read those, so an object that never set the property
+  lists no property at all.
 - **Properties kept in the table.** Most properties point to a value. Some small ones sit in
   the table itself. The package cannot read those.
 - **Text above code point 65535.** MATLAB keeps text as 16-bit units. `Array{Char,N}` gives

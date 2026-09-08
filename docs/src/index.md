@@ -191,8 +191,8 @@ For everything else, MAT.jl is the better tool.
 | MATLAB versions | 4, 5, 6, 7 and 7.3 | 7.3 only |
 | The HDF5 C library | needed | not used |
 | `matread(path)` gives a `Dict` | yes | yes |
-| `datetime` | full values | full values |
-| `table`, `string` | full values | class and properties only |
+| `datetime`, `string` | full values | full values |
+| `table`, `categorical` | full values | class and properties only |
 | sparse arrays | yes | no |
 | works in a small compiled program | no | yes |
 

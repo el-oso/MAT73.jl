@@ -95,6 +95,8 @@ What you get:
 | a cell array | an `Array{Any}`, with each item read |
 | a struct | a `Dict{String,Any}` |
 | an object | a `Dict{String,Any}` of its properties |
+| `datetime` | an `Array{DateTime}` |
+| `string` | an `Array{String}` |
 """
 function matread(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
@@ -102,10 +104,15 @@ function matread(f::MatFile, key)
 
     # An object and a struct both read as a set of named values, except for the MATLAB types
     # this package knows a rule for.
-    if !iszero(oi.mobject)
-        if matobjectclass(f, key) == DATETIME_CLASS
+    if isobjectref(f, oi)
+        class = matobjectclass(f, key)
+        if class == DATETIME_CLASS
             data = objinfo(f.h5, objectproperty(f, oi, "data"))
             return readrank(f, key, DateTime, data.nd)
+        elseif class == STRING_CLASS
+            # A string keeps its own rank in the block it stores, not in the dataset.
+            raw = matread(f, MatRef(objectproperty(f, oi, "any")), Matrix{UInt64})
+            return readrank(f, key, String, length(raw) >= 2 ? Int(raw[2]) : 2)
         end
         out = Dict{String, Any}()
         for prop in objectkeys(f, oi)

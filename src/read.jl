@@ -107,7 +107,7 @@ function lookup(f::MatFile, path::String)
             # Not a group member: a MATLAB object's properties live in the subsystem, and
             # are reached by the same path syntax as a struct's fields.
             oi = objinfo(f.h5, addr)
-            iszero(oi.mobject) && error("no variable or field named \"", path, "\" in this file")
+            isobjectref(f, oi) || error("no variable or field named \"", path, "\" in this file")
             found = objectproperty(f, oi, String(part))
         end
         found >= 0 || error("no variable or field named \"", path, "\" in this file")
@@ -125,6 +125,24 @@ function objectids(f::MatFile, oi::ObjInfo)
 end
 
 """
+Does this dataset stand for MATLAB objects?
+
+At the top level MATLAB writes a note beside an object variable. Inside `#subsystem#` it
+writes no note, so an object held by another object carries only the tag its index array
+starts with. MATLAB reads any `uint32` list of values that starts with that tag as an object,
+and so does this.
+
+Reading the tag costs a read of the values, so the shape is checked first: an index array is
+a single row or a single column, never a wider one.
+"""
+function isobjectref(f::MatFile, oi::ObjInfo)
+    iszero(oi.mobject) || return true
+    (oi.mclass == "uint32" && oi.nd == 2 && !oi.mempty) || return false
+    (matdim(oi.dims, 1, 2) == 1 || matdim(oi.dims, 2, 2) == 1) || return false
+    return !isempty(objectids(f, oi))
+end
+
+"""
     matobjectclass(f, name) -> String
 
 Give the full class name of a MATLAB object, such as `TestClasses.BasicClass`. The name
@@ -136,7 +154,7 @@ If the variable points to more than one object, this describes the first one.
 """
 function matobjectclass(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
-    iszero(oi.mobject) && return ""
+    isobjectref(f, oi) || return ""
     ids = objectids(f, oi)
     isempty(ids) && return oi.mclass
     t = mcos(f).tables
@@ -228,7 +246,7 @@ function matkeys(f::MatFile, path::String)
     isempty(path) && return copy(f.names)
     addr = lookup(f, path)
     oi = objinfo(f.h5, addr)
-    iszero(oi.mobject) || return objectkeys(f, oi)
+    isobjectref(f, oi) && return objectkeys(f, oi)
     return groupentries(f.h5, oi)[1]
 end
 
@@ -248,7 +266,7 @@ object, use [`matobjectclass`](@ref) instead.
 function matclass(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
     # A MATLAB object, or a sparse array, is not the plain class its attribute names.
-    (iszero(oi.mobject) && oi.msparse < 0) || return MAT_UNSUPPORTED
+    (oi.msparse < 0 && !isobjectref(f, oi)) || return MAT_UNSUPPORTED
     return classof(oi.mclass)
 end
 

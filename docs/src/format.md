@@ -23,6 +23,7 @@ start with `MATLAB_`.
 | struct arrays | each field is an `Array{MatRef,N}` |
 | objects of a class you wrote | properties by path |
 | `datetime` | `Array{DateTime,N}` |
+| `string` | `Array{String,N}` |
 
 ## Boxes with mixed contents
 
@@ -71,6 +72,10 @@ It holds the name you gave and the value. This package follows that step as well
 `matclass` still reports `MAT_UNSUPPORTED` for an object. That function answers one question:
 is this a plain array? An object is not. Ask `matobjectclass` instead.
 
+An object held by another object is found too. MATLAB writes the note that marks an object
+only at the top level. Inside the hidden entry it writes none, so the only mark left is the
+tag the index array starts with. This package reads that tag, as MATLAB does.
+
 ### Dates
 
 A MATLAB `datetime` is an object too, but this package knows the rule for it. Its `data`
@@ -83,6 +88,21 @@ t = matread(f, "when", Matrix{DateTime})   # or matread(f, "when")
 
 A time zone on the MATLAB side is not applied. MATLAB may store a step smaller than a
 millisecond, which a `DateTime` cannot hold, and that part is dropped.
+
+### Text held as a `string`
+
+A MATLAB `string` is an object as well, and this package knows its rule too.
+
+A `string` is not a `char`. MATLAB keeps a `char` array as text beside the array. It keeps a
+`string` array as one block of numbers, holding in order: a version, the number of
+dimensions, the dimensions, the length of each piece of text, and then all the text back to
+back as 16-bit units.
+
+```julia
+names = matread(f, "names", Matrix{String})   # or matread(f, "names")
+```
+
+You get one `String` for each element, in the shape MATLAB used.
 
 ## Empty arrays
 
@@ -159,10 +179,13 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 - **Sparse arrays.** When this is added, `SparseArrays` must be an optional dependency. It
   pulls in a library that looks up files on disk when it starts. A small compiled program then
   stops before it runs, if it cannot find those files. So it must stay off the normal path.
-- **Objects of the MATLAB types** `table`, `string` and function handles. These are objects
-  like any other. Their class and their properties read correctly. Building the value that
-  MATLAB shows needs a rule for each type, and only `datetime` has one so far. Classes you
-  write yourself need no such rule.
+- **Objects of the MATLAB types** `table`, `categorical`, `duration` and function handles.
+  These are objects like any other. Their class and their properties read correctly. Building
+  the value that MATLAB shows needs a rule for each type, and only `datetime` and `string`
+  have one so far. Classes you write yourself need no such rule.
+- **The default value of a property.** A class can give a property a value in its own
+  definition. MATLAB keeps those values in a part of the table this package does not read
+  yet, so an object that never set the property lists no property at all.
 - **Properties kept in the table.** Most properties point to a value elsewhere. Some small
   ones sit in the table itself. Only the first kind has an address to follow, so the second
   kind stops with an error.
