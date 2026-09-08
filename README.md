@@ -1,5 +1,6 @@
 # MAT73.jl
 
+[![Docs](https://img.shields.io/badge/docs-dev-blue.svg)](https://el-oso.github.io/MAT73.jl/dev/)
 [![CI](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml)
 [![Coverage](https://coveralls.io/repos/github/el-oso/MAT73.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/MAT73.jl?branch=master)
 

@@ -44,6 +44,26 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
 
+  docs:
+    name: Documentation
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # to push the built site to gh-pages
+      pull-requests: read    # for previews on pull requests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1'
+      - uses: julia-actions/cache@v2
+      - name: Resolve the docs environment
+        run: julia --project=docs -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+      - name: Build and deploy
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }}
+        run: julia --project=docs docs/make.jl
+
   trim:
     # Both halves of the `--trim=safe` gate. They live outside the test matrix because
     # TrimCheck needs the Compiler stdlib from Julia 1.12, while the package supports 1.10.
