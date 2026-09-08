@@ -131,7 +131,7 @@ function readchunked!(out::Array{T, N}, f::H5File, oi::ObjInfo) where {T, N}
                 gidx += gk * dstride[k]
             end
             inbounds || continue
-            out[gidx + 1] = fromuint(T, readuint(bytes, li * sz, sz))
+            out[gidx + 1] = readelem(T, bytes, li * sz)
         end
     end
     return out

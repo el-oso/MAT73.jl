@@ -29,6 +29,8 @@ const LAYOUT_CHUNKED = 2
 # Datatype class, as HDF5 numbers them.
 const DT_FIXED = 0
 const DT_FLOAT = 1
+const DT_STRING = 3
+const DT_COMPOUND = 6
 
 # Filter identifiers, as HDF5 registers them.
 const FILTER_DEFLATE = 1
@@ -61,6 +63,51 @@ struct ObjInfo
     nfilters::Int
     filter_ids::NTuple{MAXFILTERS, Int}
     filter_cd1::NTuple{MAXFILTERS, Int}  # first client value; shuffle's is its element size
+    # The MATLAB_* attributes. They carry everything HDF5 itself does not say: which MATLAB
+    # class the bytes represent, and whether the dataset is a stand-in for an empty array.
+    mclass::String       # "" when absent, so this is not a MATLAB-written dataset
+    int_decode::Int      # 1 logical, 2 char; 0 when absent
+    mempty::Bool         # the data holds the array's dimensions, not its elements
+    msparse::Int         # row count of a sparse array, -1 when absent
+    mobject::Int         # 1 function handle, 2 old-style object, 3 opaque; 0 when absent
+end
+
+"Bytes `[off+1, off+n]` as a string, without the trailing NULs a fixed-length string pads with."
+function cstring(buf::Vector{UInt8}, off::Int, n::Int)
+    e = off + n
+    while e > off && iszero(buf[e])
+        e -= 1
+    end
+    return String(buf[(off + 1):e])
+end
+
+"""
+Locate the parts of an attribute message: its name, and the class, element size and file
+offset of its data. Version 1 pads the name, datatype and dataspace blocks out to a multiple
+of 8 bytes; versions 2 and 3 pad nothing, and version 3 inserts a character-set byte.
+"""
+function attrinfo(buf::Vector{UInt8}, d::Int)
+    av = Int(buf[d + 1])
+    namesize = Int(readuint(buf, d + 2, 2))
+    dtsize = Int(readuint(buf, d + 4, 2))
+    dssize = Int(readuint(buf, d + 6, 2))
+    p = d + 8
+    av == 3 && (p += 1)
+    name = cstring(buf, p, namesize)
+    if av == 1
+        p += 8 * cld(namesize, 8)
+        dtoff = p
+        p += 8 * cld(dtsize, 8)
+        p += 8 * cld(dssize, 8)
+    else
+        p += namesize
+        dtoff = p
+        p += dtsize
+        p += dssize
+    end
+    acls = Int(buf[dtoff + 1] & 0x0f)
+    asize = Int(readuint(buf, dtoff + 4, 4))
+    return name, acls, asize, p
 end
 
 @inline function readuint(buf::Vector{UInt8}, off::Int, n::Int)::UInt64
@@ -163,6 +210,11 @@ function objinfo(f::H5File, addr::Int)
     nfilters = 0
     filter_ids = (0, 0, 0, 0)
     filter_cd1 = (0, 0, 0, 0)
+    mclass = ""
+    int_decode = 0
+    mempty = false
+    msparse = -1
+    mobject = 0
 
     seen = 0
     bi = 1
@@ -234,6 +286,19 @@ function objinfo(f::H5File, addr::Int)
                 else
                     error("unsupported data layout version")
                 end
+            elseif mtype == 12               # attribute
+                aname, acls, asize, adata = attrinfo(buf, d)
+                if aname == "MATLAB_class"
+                    mclass = cstring(buf, adata, asize)
+                elseif aname == "MATLAB_int_decode"
+                    int_decode = Int(readuint(buf, adata, asize))
+                elseif aname == "MATLAB_empty"
+                    mempty = !iszero(readuint(buf, adata, asize))
+                elseif aname == "MATLAB_sparse"
+                    msparse = Int(readuint(buf, adata, asize))
+                elseif aname == "MATLAB_object_decode"
+                    mobject = Int(readuint(buf, adata, asize))
+                end
             elseif mtype == 11               # filter pipeline
                 fv = Int(buf[d + 1])
                 nfilters = Int(buf[d + 2])
@@ -286,6 +351,7 @@ function objinfo(f::H5File, addr::Int)
         stab_btree, stab_heap, layout, data_off, data_size, nd, dims,
         dt_class, dt_size, dt_signed,
         chunk_btree, chunk_ndl, chunk_dims, nfilters, filter_ids, filter_cd1,
+        mclass, int_decode, mempty, msparse, mobject,
     )
 end
 

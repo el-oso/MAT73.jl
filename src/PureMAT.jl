@@ -20,7 +20,7 @@ using Mmap
 using ChunkCodecLibZlib: ZlibDecodeOptions
 using ChunkCodecLibZlib.ChunkCodecCore: try_decode!
 
-export matopen, matread, matsize
+export matopen, matread, matsize, matclass, MatClass
 
 include("hdf5.jl")
 include("chunked.jl")

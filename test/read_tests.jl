@@ -37,7 +37,7 @@ end
         f = matopen(fixture(file))
         got = matread(f, name, Array{T, ndims(refa)})
         @test got == refa
-        @test matsize(f, name) == size(refa)
+        @test matsize(f, name) == collect(size(refa))
     end
 end
 

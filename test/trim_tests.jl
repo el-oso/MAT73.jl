@@ -13,10 +13,14 @@
         end,
         PureMAT.matopen(String),
         PureMAT.matsize(PureMAT.MatFile, String),
+        PureMAT.matclass(PureMAT.MatFile, String),
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Float64}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{Array{Float64, 3}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Float32}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Int32}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{UInt8}}),
+        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Bool}}),
+        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{ComplexF64}}),
+        PureMAT.matread(PureMAT.MatFile, String, Type{String}),
     )
 end
