@@ -79,8 +79,7 @@ analyses stock Base while `juliac` raises `max_args`. The authoritative gate is 
 which CI runs and which you can run yourself:
 
 ```
-julia --project=juliac -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
-julia --project=juliac juliac/build.jl
+julia --project=. juliac/build.jl
 ```
 
 That builds `juliac/entry.jl` with `--trim=safe` and fails unless the resulting binary prints

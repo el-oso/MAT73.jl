@@ -56,7 +56,6 @@ jobs:
         with:
           version: '1.12'   # the juliac driver ships with Julia from 1.12
       - uses: julia-actions/cache@v2
-      - name: Resolve the build environment
-        run: julia --project=juliac -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+      - uses: julia-actions/julia-buildpkg@v1
       - name: Build and compare against the Julia path
-        run: julia --project=juliac juliac/build.jl
+        run: julia --project=. juliac/build.jl

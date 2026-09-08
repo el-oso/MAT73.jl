@@ -3,7 +3,10 @@
 # model finalizers, while `juliac` raises `max_args` and roots every reachable one, so the two
 # can disagree in both directions.
 #
-# Run as: julia --project=juliac juliac/build.jl
+# Run as: julia --project=. juliac/build.jl
+#
+# The build uses the package's own environment rather than one of its own, so the binary is
+# linked against exactly the dependencies PureMAT declares and nothing else.
 
 using PureMAT
 
@@ -19,7 +22,7 @@ const VARIABLE = "a2x2"
 function build()
     isfile(DRIVER) || error("no juliac driver at $DRIVER; it ships with Julia 1.12 and later")
     isfile(BINARY) && rm(BINARY)
-    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$HERE $DRIVER
+    cmd = `$(Base.julia_cmd()) --startup-file=no --project=$ROOT $DRIVER
            --output-exe $BINARY --experimental --trim=safe $ENTRY`
     @info "building" cmd
     # stdin is redirected because the juliaup launcher can panic reading a non-blocking
