@@ -4,7 +4,7 @@
 # `Core.stdout` rather than `println(x)`, because `Base.stdout` is an abstract global and is
 # not statically resolvable.
 
-using PureMAT
+using MAT73
 
 function (@main)(args::Vector{String})::Cint
     out = Core.stdout

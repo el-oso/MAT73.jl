@@ -1,13 +1,13 @@
-# PureMAT.jl
+# MAT73.jl
 
-[![CI](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/PureMAT.jl/actions/workflows/CI.yml)
-[![Coverage](https://coveralls.io/repos/github/el-oso/PureMAT.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/PureMAT.jl?branch=master)
+[![CI](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml)
+[![Coverage](https://coveralls.io/repos/github/el-oso/MAT73.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/MAT73.jl?branch=master)
 
 Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library, and from a
 binary built with `juliac --trim=safe`.
 
 ```julia
-using PureMAT
+using MAT73
 
 f = matopen("results.mat")
 keys(f)                                # top-level variable names

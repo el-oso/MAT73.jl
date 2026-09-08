@@ -1,5 +1,5 @@
 @testitem "MATLAB classes are reported from the attributes" setup = [Fixtures] begin
-    using PureMAT: MAT_DOUBLE, MAT_SINGLE, MAT_INT32, MAT_UINT8, MAT_LOGICAL, MAT_CHAR,
+    using MAT73: MAT_DOUBLE, MAT_SINGLE, MAT_INT32, MAT_UINT8, MAT_LOGICAL, MAT_CHAR,
         MAT_CELL, MAT_STRUCT, MAT_UNSUPPORTED
 
     f = matopen(fixture("simple.mat"))

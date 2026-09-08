@@ -1,5 +1,5 @@
 @testitem "written files round-trip through this package" setup = [Fixtures] begin
-    using PureMAT: matwrite
+    using MAT73: matwrite
 
     mktempdir() do dir
         path = joinpath(dir, "out.mat")
@@ -21,7 +21,7 @@
 end
 
 @testitem "libhdf5 reads what this package writes" setup = [Fixtures] begin
-    using PureMAT: matwrite
+    using MAT73: matwrite
     import MAT
 
     # The real acceptance test. libhdf5 verifies the superblock and object header checksums,
@@ -48,7 +48,7 @@ end
 end
 
 @testitem "written files carry the MATLAB banner and a 512-byte user block" setup = [Fixtures] begin
-    using PureMAT: matwrite
+    using MAT73: matwrite
 
     mktempdir() do dir
         path = joinpath(dir, "out.mat")
@@ -61,6 +61,6 @@ end
 end
 
 @testitem "the writer refuses to emit a file it cannot describe" setup = [Fixtures] begin
-    using PureMAT: matwrite, MatWriter
+    using MAT73: matwrite, MatWriter
     @test_throws "nothing to write" matwrite(joinpath(mktempdir(), "empty.mat"), MatWriter())
 end

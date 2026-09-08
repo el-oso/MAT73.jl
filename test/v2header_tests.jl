@@ -18,7 +18,7 @@
 end
 
 @testitem "MATLAB classes survive the other header shape" setup = [Fixtures] begin
-    using PureMAT: MAT_DOUBLE, MAT_INT32, MAT_LOGICAL, MAT_CHAR
+    using MAT73: MAT_DOUBLE, MAT_INT32, MAT_LOGICAL, MAT_CHAR
     f = matopen(joinpath(@__DIR__, "fixtures", "matjl", "written_by_matjl.mat"))
     @test matclass(f, "a2x2") == MAT_DOUBLE
     @test matclass(f, "i32") == MAT_INT32

@@ -6,7 +6,7 @@
 # uncompressed datasets. Choosing that over the old-style groups MATLAB itself writes avoids
 # local heaps and version-1 B-trees entirely.
 
-const MAT_BANNER = "MATLAB 7.3 MAT-file, Platform: PureMAT.jl, Created by PureMAT.jl"
+const MAT_BANNER = "MATLAB 7.3 MAT-file, Platform: Julia, Created by MAT73.jl"
 const USERBLOCK = 512
 const UNDEF_ADDR = typemax(UInt64)
 

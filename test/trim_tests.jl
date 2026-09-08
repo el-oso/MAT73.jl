@@ -9,21 +9,21 @@
     using TrimCheck
     @validate(
         init = begin
-            using PureMAT
+            using MAT73
         end,
-        PureMAT.matopen(String),
-        PureMAT.matsize(PureMAT.MatFile, String),
-        PureMAT.matclass(PureMAT.MatFile, String),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Float64}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Array{Float64, 3}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Float32}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Int32}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{UInt8}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Bool}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{ComplexF64}}),
-        PureMAT.matread(PureMAT.MatFile, String, Type{String}),
-        Base.push!(PureMAT.MatWriter, String, Matrix{Float64}),
-        Base.push!(PureMAT.MatWriter, String, Matrix{Bool}),
-        PureMAT.matwrite(String, PureMAT.MatWriter),
+        MAT73.matopen(String),
+        MAT73.matsize(MAT73.MatFile, String),
+        MAT73.matclass(MAT73.MatFile, String),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{Float64}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Array{Float64, 3}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{Float32}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{Int32}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{UInt8}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{Bool}}),
+        MAT73.matread(MAT73.MatFile, String, Type{Matrix{ComplexF64}}),
+        MAT73.matread(MAT73.MatFile, String, Type{String}),
+        Base.push!(MAT73.MatWriter, String, Matrix{Float64}),
+        Base.push!(MAT73.MatWriter, String, Matrix{Bool}),
+        MAT73.matwrite(String, MAT73.MatWriter),
     )
 end

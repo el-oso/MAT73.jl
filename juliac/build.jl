@@ -9,9 +9,9 @@
 # Run as: julia --project=. juliac/build.jl
 #
 # The build uses the package's own environment rather than one of its own, so the binary is
-# linked against exactly the dependencies PureMAT declares and nothing else.
+# linked against exactly the dependencies MAT73 declares and nothing else.
 
-using PureMAT
+using MAT73
 
 const HERE = @__DIR__
 const ROOT = dirname(HERE)

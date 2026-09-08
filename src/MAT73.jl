@@ -1,5 +1,5 @@
 """
-    PureMAT
+    MAT73
 
 Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library.
 
@@ -14,7 +14,7 @@ matsize(f, "A")                      # MATLAB dimensions
 A = matread(f, "A", Matrix{Float64}) # concrete return type, checked against the file
 ```
 """
-module PureMAT
+module MAT73
 
 using Mmap
 using ChunkCodecLibZlib: ZlibDecodeOptions
@@ -28,4 +28,4 @@ include("chunked.jl")
 include("read.jl")
 include("write.jl")
 
-end # module PureMAT
+end # module MAT73
