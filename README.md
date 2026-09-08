@@ -119,6 +119,8 @@ in the opposite order. The two effects cancel.
 | `datetime` | `Array{DateTime,N}` |
 | `string`, `categorical` | `Array{String,N}` |
 | `table` | a `NamedTuple` of columns |
+| function handles | the values MATLAB stored, by path |
+| objects of a class written before 2008 | properties by path |
 
 ## Boxes with mixed contents
 
@@ -161,6 +163,11 @@ is found as well.
 
 A `datetime`, a `string`, a `categorical` and a `table` are objects too, and the package knows
 the rule for each.
+
+A saved function handle holds no code. MATLAB stores a named handle such as `@sin` as the
+name `sin`, and an anonymous one such as `@(x) x` as the text of the expression plus the
+values it captured. It reads as a set of named values, like a struct. You can see what a file
+referred to. You cannot call it from Julia.
 
 ## Tables
 
@@ -211,10 +218,12 @@ come first, because a quiet limit is easy to miss.
 The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
 - **Sparse arrays.**
-- **Objects of the MATLAB types** `duration`, `calendarDuration` and function handles. The
-  package reads their class and their properties. It cannot build the value that MATLAB
-  shows. That step needs a rule for each type, and only `datetime`, `string`, `categorical`
-  and `table` have one so far.
+- **Objects of the MATLAB types** `duration` and `calendarDuration`. The package reads their
+  class and their properties. It cannot build the value that MATLAB shows. That step needs a
+  rule for each type, and only `datetime`, `string`, `categorical` and `table` have one so
+  far.
+- **Calling a function handle.** The file holds a name, or the text of an expression. Turning
+  either one into something you can call is a job for a different tool.
 - **An element of a `categorical` with no choice.** MATLAB shows it as `<undefined>`. There
   is no text for it, so this stops with an error.
 - **The row names of a table.** Only the columns are read.

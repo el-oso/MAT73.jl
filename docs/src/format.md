@@ -25,6 +25,8 @@ start with `MATLAB_`.
 | `datetime` | `Array{DateTime,N}` |
 | `string`, `categorical` | `Array{String,N}` |
 | `table` | a `NamedTuple` of columns |
+| function handles | the values MATLAB stored, by path |
+| objects of a class written before 2008 | properties by path |
 
 ## Boxes with mixed contents
 
@@ -139,6 +141,29 @@ t = matread(f, "flights", NamedTuple{
 You may ask for some of the columns only, in any order. A name the table does not have stops
 with an error.
 
+### Function handles
+
+**A saved function handle holds no code. It holds the name, or the text you typed.**
+
+Think of a phone number written on a card. The card does not ring. Someone has to dial it.
+
+MATLAB stores a named handle such as `@sin` as the name `sin`. It stores an anonymous handle
+such as `@(x) x` as the text of the expression, together with the values it captured when you
+made it. It also stores the folder MATLAB was installed in.
+
+So you can read what a saved file referred to. You cannot call it from Julia; there is nothing
+to call.
+
+A handle reads as a set of named values, like a struct:
+
+```julia
+matkeys(f, "h")                            # ["function_handle", "matlabroot", ...]
+matread(f, "h/function_handle/function", String)
+```
+
+`matobjectclass` gives an empty string for a handle. A handle carries the note that marks an
+object, but it is not a `classdef` instance, so it has no class name in the hidden table.
+
 ## Empty arrays
 
 **An empty array keeps its shape.**
@@ -214,10 +239,12 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 - **Sparse arrays.** When this is added, `SparseArrays` must be an optional dependency. It
   pulls in a library that looks up files on disk when it starts. A small compiled program then
   stops before it runs, if it cannot find those files. So it must stay off the normal path.
-- **Objects of the MATLAB types** `duration`, `calendarDuration` and function handles. These
-  are objects like any other. Their class and their properties read correctly. Building the
-  value that MATLAB shows needs a rule for each type, and only `datetime`, `string`,
-  `categorical` and `table` have one so far. Classes you write yourself need no such rule.
+- **Objects of the MATLAB types** `duration` and `calendarDuration`. These are objects like
+  any other. Their class and their properties read correctly. Building the value that MATLAB
+  shows needs a rule for each type, and only `datetime`, `string`, `categorical` and `table`
+  have one so far. Classes you write yourself need no such rule.
+- **Calling a function handle.** The file holds a name, or the text of an expression. Turning
+  either one into something you can call is a job for a different tool.
 - **An element of a `categorical` with no choice.** MATLAB shows it as `<undefined>`. There
   is no text for it, so this stops with an error rather than giving back an empty one.
 - **The row names of a table.** Only the columns are read.

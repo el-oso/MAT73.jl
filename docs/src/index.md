@@ -193,7 +193,7 @@ For everything else, MAT.jl is the better tool.
 | `matread(path)` gives a `Dict` | yes | yes |
 | `datetime`, `string` | full values | full values |
 | `table`, `categorical` | full values | full values |
-| function handles | full values | class and properties only |
+| function handles | the stored values | the stored values |
 | sparse arrays | yes | no |
 | works in a small compiled program | no | yes |
 
