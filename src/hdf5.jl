@@ -1,11 +1,17 @@
-# The subset of HDF5 that MATLAB's v7.3 writer emits: a 512-byte user block, superblock
-# version 0, version-1 object headers, old-style groups (local heap + version-1 B-tree +
-# symbol table nodes), and contiguous or compact data layout.
+# The subset of HDF5 that MATLAB's v7.3 writer emits, plus the subset this package's own
+# writer emits.
 #
-# Everything here is written to stay statically resolvable under `juliac --trim=safe`:
-# concrete field types, no closures over loop-mutated locals, no runtime-constructed types.
+# MATLAB writes superblock version 0, version-1 object headers and old-style groups (a local
+# heap of names indexed by a version-1 B-tree). HDF5.jl, MAT.jl and `matwrite` here write
+# superblock version 2, version-2 object headers and compact groups made of link messages.
+# Both are read.
+#
+# Everything is written to stay statically resolvable under `juliac --trim=safe`: concrete
+# field types, no closures over loop-mutated locals, no runtime-constructed types.
 
 const H5SIG = (0x89, 0x48, 0x44, 0x46, 0x0d, 0x0a, 0x1a, 0x0a)
+const OHDR_SIG = (0x4f, 0x48, 0x44, 0x52)   # "OHDR", a version-2 object header
+const OCHK_SIG = (0x4f, 0x43, 0x48, 0x4b)   # "OCHK", its continuation block
 
 "Highest dataspace rank this reader accepts. MATLAB arrays are far below it."
 const MAXRANK = 8
@@ -39,7 +45,10 @@ const FILTER_SHUFFLE = 2
 "Most filters a pipeline may hold here. MATLAB writes at most shuffle followed by deflate."
 const MAXFILTERS = 4
 
-# The object-header fields a raw array read needs. A fixed layout keeps inference concrete.
+"A group entry: a name and the address of the object header it points at."
+const Link = Tuple{String, Int}
+
+# The object-header fields a read needs. A fixed layout keeps inference concrete.
 #
 # The filter pipeline is a fixed-size tuple rather than a vector of filter objects: a
 # container whose length or element type comes from the file cannot be dispatched on
@@ -47,6 +56,7 @@ const MAXFILTERS = 4
 struct ObjInfo
     stab_btree::Int
     stab_heap::Int
+    links::Vector{Link}  # from link messages; a compact group carries its entries here
     layout::Int
     data_off::Int    # 0-based file offset of the raw data, -1 if unallocated
     data_size::Int   # bytes
@@ -64,12 +74,160 @@ struct ObjInfo
     filter_ids::NTuple{MAXFILTERS, Int}
     filter_cd1::NTuple{MAXFILTERS, Int}  # first client value; shuffle's is its element size
     # The MATLAB_* attributes. They carry everything HDF5 itself does not say: which MATLAB
-    # class the bytes represent, and whether the dataset is a stand-in for an empty array.
+    # class the bytes represent, and whether the dataset stands in for an empty array.
     mclass::String       # "" when absent, so this is not a MATLAB-written dataset
     int_decode::Int      # 1 logical, 2 char; 0 when absent
     mempty::Bool         # the data holds the array's dimensions, not its elements
     msparse::Int         # row count of a sparse array, -1 when absent
     mobject::Int         # 1 function handle, 2 old-style object, 3 opaque; 0 when absent
+end
+
+# Mutable twin of ObjInfo, filled while scanning messages. Both object header versions share
+# `handle_message!`, so the two differ only in how they frame their messages.
+mutable struct ObjAcc
+    stab_btree::Int
+    stab_heap::Int
+    links::Vector{Link}
+    layout::Int
+    data_off::Int
+    data_size::Int
+    nd::Int
+    dims::NTuple{MAXRANK, Int}
+    dt_class::Int
+    dt_size::Int
+    dt_signed::Bool
+    chunk_btree::Int
+    chunk_ndl::Int
+    chunk_dims::NTuple{MAXRANK + 1, Int}
+    nfilters::Int
+    filter_ids::NTuple{MAXFILTERS, Int}
+    filter_cd1::NTuple{MAXFILTERS, Int}
+    mclass::String
+    int_decode::Int
+    mempty::Bool
+    msparse::Int
+    mobject::Int
+    blocks::Vector{Int}   # (start, length) pairs of message blocks still to scan
+end
+
+ObjAcc() = ObjAcc(
+    -1, -1, Link[], LAYOUT_NONE, -1, 0, 0, (0, 0, 0, 0, 0, 0, 0, 0),
+    -1, 0, false, -1, 0, (0, 0, 0, 0, 0, 0, 0, 0, 0),
+    0, (0, 0, 0, 0), (0, 0, 0, 0), "", 0, false, -1, 0, Int[],
+)
+
+function ObjInfo(a::ObjAcc)
+    # A contiguous extent comes from dataspace times datatype: the layout message's stored
+    # size counts elements in versions 1 and 2 but bytes in version 3.
+    data_size = a.data_size
+    if a.layout == LAYOUT_CONTIGUOUS
+        n = 1
+        for k in 1:a.nd
+            n *= a.dims[k]
+        end
+        data_size = n * a.dt_size
+    end
+    return ObjInfo(
+        a.stab_btree, a.stab_heap, a.links, a.layout, a.data_off, data_size, a.nd, a.dims,
+        a.dt_class, a.dt_size, a.dt_signed,
+        a.chunk_btree, a.chunk_ndl, a.chunk_dims, a.nfilters, a.filter_ids, a.filter_cd1,
+        a.mclass, a.int_decode, a.mempty, a.msparse, a.mobject,
+    )
+end
+
+@inline function readuint(buf::Vector{UInt8}, off::Int, n::Int)::UInt64
+    v = UInt64(0)
+    for i in 0:(n - 1)
+        v |= UInt64(buf[off + i + 1]) << (8 * i)
+    end
+    return v
+end
+
+# All-ones is HDF5's undefined address.
+@inline function readaddr(buf::Vector{UInt8}, off::Int, n::Int)::Int
+    v = readuint(buf, off, n)
+    mask = n >= 8 ? typemax(UInt64) : (UInt64(1) << (8 * n)) - UInt64(1)
+    return v == mask ? -1 : Int(v)
+end
+
+@inline function sigat(buf::Vector{UInt8}, off::Int, sig::NTuple{4, UInt8})
+    off + 4 <= length(buf) || return false
+    for i in 1:4
+        buf[off + i] == sig[i] || return false
+    end
+    return true
+end
+
+function open_h5(path::String)
+    io = open(path, "r")
+    buf = Mmap.mmap(io, Vector{UInt8})
+    close(io)
+    # The signature sits at a power-of-two multiple of 512. MATLAB uses 512: a user block
+    # holding the "MATLAB 7.3 MAT-file" banner precedes the superblock.
+    sb = -1
+    probe = 0
+    while probe + 8 <= length(buf)
+        ok = true
+        for i in 1:8
+            if buf[probe + i] != H5SIG[i]
+                ok = false
+                break
+            end
+        end
+        if ok
+            sb = probe
+            break
+        end
+        probe = iszero(probe) ? 512 : probe * 2
+    end
+    sb < 0 && error("no HDF5 superblock signature found")
+
+    version = Int(buf[sb + 9])
+    if iszero(version)
+        osize = Int(buf[sb + 14])
+        lsize = Int(buf[sb + 15])
+        p = sb + 24                   # past prefix, K values and consistency flags
+        baseaddr = Int(readuint(buf, p, osize))
+        # base, free-space, end-of-file and driver-info addresses, then the root symbol
+        # table entry, whose object header address follows its link-name offset.
+        root = readaddr(buf, p + 4 * osize + osize, osize)
+        return H5File(buf, sb, osize, lsize, baseaddr, root)
+    elseif version == 2 || version == 3
+        osize = Int(buf[sb + 10])
+        lsize = Int(buf[sb + 11])
+        p = sb + 12                   # past signature, version, sizes and consistency flags
+        baseaddr = Int(readuint(buf, p, osize))
+        # base address, superblock extension, end of file, then the root object header.
+        root = readaddr(buf, p + 3 * osize, osize)
+        return H5File(buf, sb, osize, lsize, baseaddr, root)
+    end
+    return error("unsupported superblock version ", version)
+end
+
+@inline foff(f::H5File, addr::Int) = f.baseaddr + addr
+
+"Set element `i` of a 4-tuple. An explicit ladder keeps the result's type a literal."
+@inline function settuple4(t::NTuple{4, Int}, i::Int, v::Int)
+    i == 1 && return (v, t[2], t[3], t[4])
+    i == 2 && return (t[1], v, t[3], t[4])
+    i == 3 && return (t[1], t[2], v, t[4])
+    return (t[1], t[2], t[3], v)
+end
+
+"Chunk dimension `k`; they are 4 bytes each, unlike dataspace dimensions."
+@inline function cdimat(buf::Vector{UInt8}, q::Int, k::Int, ndl::Int)::Int
+    return k <= ndl ? Int(readuint(buf, q + (k - 1) * 4, 4)) : 0
+end
+
+# Top-level rather than closures: a closure capturing a loop-mutated local boxes it, which
+# makes the enclosing frame unresolvable under `--trim=safe`.
+@inline function dimat(buf::Vector{UInt8}, d::Int, k::Int, nd::Int, ls::Int)::Int
+    return k <= nd ? Int(readuint(buf, d + (k - 1) * ls, ls)) : 0
+end
+
+"MATLAB dimension `k`, recovered from the reversed dimensions HDF5 stores."
+@inline function matdim(dims::NTuple{MAXRANK, Int}, k::Int, nd::Int)::Int
+    return k <= nd ? dims[nd - k + 1] : 1
 end
 
 "Bytes `[off+1, off+n]` as a string, without the trailing NULs a fixed-length string pads with."
@@ -110,249 +268,228 @@ function attrinfo(buf::Vector{UInt8}, d::Int)
     return name, acls, asize, p
 end
 
-@inline function readuint(buf::Vector{UInt8}, off::Int, n::Int)::UInt64
-    v = UInt64(0)
-    for i in 0:(n - 1)
-        v |= UInt64(buf[off + i + 1]) << (8 * i)
-    end
-    return v
-end
-
-# All-ones is HDF5's undefined address.
-@inline function readaddr(buf::Vector{UInt8}, off::Int, n::Int)::Int
-    v = readuint(buf, off, n)
-    mask = n >= 8 ? typemax(UInt64) : (UInt64(1) << (8 * n)) - UInt64(1)
-    return v == mask ? -1 : Int(v)
-end
-
-function open_h5(path::String)
-    io = open(path, "r")
-    buf = Mmap.mmap(io, Vector{UInt8})
-    close(io)
-    # The signature sits at a power-of-two multiple of 512. MATLAB uses 512: a user block
-    # holding the "MATLAB 7.3 MAT-file" banner precedes the superblock.
-    sb = -1
-    probe = 0
-    while probe + 8 <= length(buf)
-        ok = true
-        for i in 1:8
-            if buf[probe + i] != H5SIG[i]
-                ok = false
-                break
-            end
-        end
-        if ok
-            sb = probe
-            break
-        end
-        probe = iszero(probe) ? 512 : probe * 2
-    end
-    sb < 0 && error("no HDF5 superblock signature found")
-    iszero(buf[sb + 9]) || error("unsupported superblock version; only version 0 is read")
-    osize = Int(buf[sb + 14])
-    lsize = Int(buf[sb + 15])
-    p = sb + 24                       # past prefix, K values and consistency flags
-    baseaddr = Int(readuint(buf, p, osize))
-    # base, free-space, end-of-file and driver-info addresses, then the root symbol table entry
-    rootent = p + 4 * osize
-    root = readaddr(buf, rootent + osize, osize)
-    return H5File(buf, sb, osize, lsize, baseaddr, root)
-end
-
-@inline foff(f::H5File, addr::Int) = f.baseaddr + addr
-
-# Top-level rather than closures: a closure capturing a loop-mutated local boxes it, which
-# makes the enclosing frame unresolvable under `--trim=safe`.
-@inline function dimat(buf::Vector{UInt8}, d::Int, k::Int, nd::Int, ls::Int)::Int
-    return k <= nd ? Int(readuint(buf, d + 8 + (k - 1) * ls, ls)) : 0
-end
-
-"Set element `i` of a 4-tuple. An explicit ladder keeps the result's type a literal."
-@inline function settuple4(t::NTuple{4, Int}, i::Int, v::Int)
-    i == 1 && return (v, t[2], t[3], t[4])
-    i == 2 && return (t[1], v, t[3], t[4])
-    i == 3 && return (t[1], t[2], v, t[4])
-    return (t[1], t[2], t[3], v)
-end
-
-"Chunk dimension `k`; they are 4 bytes each, unlike dataspace dimensions."
-@inline function cdimat(buf::Vector{UInt8}, q::Int, k::Int, ndl::Int)::Int
-    return k <= ndl ? Int(readuint(buf, q + (k - 1) * 4, 4)) : 0
-end
-
-"MATLAB dimension `k`, recovered from the reversed dimensions HDF5 stores."
-@inline function matdim(dims::NTuple{MAXRANK, Int}, k::Int, nd::Int)::Int
-    return k <= nd ? dims[nd - k + 1] : 1
-end
-
-function objinfo(f::H5File, addr::Int)
+"""
+Read one link message, which is how a compact group names its members. Only hard links are
+followed; a soft or external link points outside this file's object headers.
+"""
+function readlink(f::H5File, d::Int)
     buf = f.buf
-    o = foff(f, addr)
-    buf[o + 1] == 0x01 || error("unsupported object header version; only version 1 is read") # noidiom
+    p = d + 1                         # past the version byte
+    flags = buf[d + 2]
+    p += 1
+    linktype = 0
+    if !iszero(flags & 0x08)
+        linktype = Int(buf[p + 1])
+        p += 1
+    end
+    !iszero(flags & 0x04) && (p += 8)             # creation order
+    !iszero(flags & 0x10) && (p += 1)             # name character set
+    lensize = 1 << (flags & 0x03)
+    namelen = Int(readuint(buf, p, lensize))
+    p += lensize
+    name = String(buf[(p + 1):(p + namelen)])
+    p += namelen
+    iszero(linktype) || return ("", -1)           # soft and external links are skipped
+    return (name, readaddr(buf, p, f.osize))
+end
+
+"Decode one object-header message into `a`. Shared by both object header versions."
+function handle_message!(a::ObjAcc, f::H5File, mtype::Int, d::Int)
+    buf = f.buf
+    if mtype == 1                        # dataspace
+        v = Int(buf[d + 1])
+        (v == 1 || v == 2) || error("unsupported dataspace version ", v)
+        a.nd = Int(buf[d + 2])
+        a.nd <= MAXRANK || error("dataspace rank above $MAXRANK is not supported")
+        # Version 1 has one reserved byte and four more after the flags; version 2 replaces
+        # all five with a single type byte, so the dimension list starts four bytes earlier.
+        q = d + (v == 1 ? 8 : 4)
+        ls = f.lsize
+        a.dims = (
+            dimat(buf, q, 1, a.nd, ls), dimat(buf, q, 2, a.nd, ls),
+            dimat(buf, q, 3, a.nd, ls), dimat(buf, q, 4, a.nd, ls),
+            dimat(buf, q, 5, a.nd, ls), dimat(buf, q, 6, a.nd, ls),
+            dimat(buf, q, 7, a.nd, ls), dimat(buf, q, 8, a.nd, ls),
+        )
+    elseif mtype == 3                    # datatype
+        # Byte 0 packs version in the high nibble and class in the low nibble.
+        a.dt_class = Int(buf[d + 1] & 0x0f)
+        a.dt_signed = !iszero((buf[d + 2] >> 3) & 0x01)
+        a.dt_size = Int(readuint(buf, d + 4, 4))
+    elseif mtype == 6                    # link
+        name, addr = readlink(f, d)
+        addr >= 0 && push!(a.links, (name, addr))
+    elseif mtype == 8                    # data layout
+        v = Int(buf[d + 1])
+        if v == 3 || v == 4
+            a.layout = Int(buf[d + 2])
+            if a.layout == LAYOUT_COMPACT
+                a.data_size = Int(readuint(buf, d + 2, 2))
+                a.data_off = d + 4
+            elseif a.layout == LAYOUT_CONTIGUOUS
+                addr = readaddr(buf, d + 2, f.osize)
+                a.data_off = addr < 0 ? -1 : foff(f, addr)
+            elseif a.layout == LAYOUT_CHUNKED
+                # Dimensionality, then the B-tree root, then that many 4-byte chunk
+                # dimensions. The trailing one is the element size, not an extent.
+                a.chunk_ndl = Int(buf[d + 3])
+                a.chunk_ndl <= MAXRANK + 1 ||
+                    error("chunk dimensionality above $(MAXRANK + 1) is not supported")
+                a.chunk_btree = readaddr(buf, d + 3, f.osize)
+                q = d + 3 + f.osize
+                a.chunk_dims = (
+                    cdimat(buf, q, 1, a.chunk_ndl), cdimat(buf, q, 2, a.chunk_ndl),
+                    cdimat(buf, q, 3, a.chunk_ndl), cdimat(buf, q, 4, a.chunk_ndl),
+                    cdimat(buf, q, 5, a.chunk_ndl), cdimat(buf, q, 6, a.chunk_ndl),
+                    cdimat(buf, q, 7, a.chunk_ndl), cdimat(buf, q, 8, a.chunk_ndl),
+                    cdimat(buf, q, 9, a.chunk_ndl),
+                )
+            end
+        elseif v == 1 || v == 2
+            ndl = Int(buf[d + 2])
+            a.layout = Int(buf[d + 3])
+            q = d + 8
+            if a.layout != LAYOUT_COMPACT
+                addr = readaddr(buf, q, f.osize)
+                a.data_off = addr < 0 ? -1 : foff(f, addr)
+                q += f.osize
+            end
+            q += ndl * 4                 # dimension sizes, in elements
+            if a.layout == LAYOUT_COMPACT
+                a.data_size = Int(readuint(buf, q, 4))
+                a.data_off = q + 4
+            end
+        else
+            error("unsupported data layout version ", v)
+        end
+    elseif mtype == 11                   # filter pipeline
+        fv = Int(buf[d + 1])
+        a.nfilters = Int(buf[d + 2])
+        a.nfilters <= MAXFILTERS || error("more than $MAXFILTERS filters is not supported")
+        # Version 1 pads the reserved header and every name and client-data block out to a
+        # multiple of 8 bytes; version 2 pads nothing.
+        q = fv == 1 ? d + 8 : d + 2
+        ids = (0, 0, 0, 0)
+        cd1 = (0, 0, 0, 0)
+        for i in 1:(a.nfilters)
+            fid = Int(readuint(buf, q, 2))
+            # Version 2 omits the name-length field for the registered filters.
+            named = fv == 1 || fid >= 256
+            hdrlen = named ? 8 : 6
+            namelen = named ? Int(readuint(buf, q + 2, 2)) : 0
+            nclient = Int(readuint(buf, q + hdrlen - 2, 2))
+            r = q + hdrlen + (fv == 1 ? 8 * cld(namelen, 8) : namelen)
+            ids = settuple4(ids, i, fid)
+            cd1 = settuple4(cd1, i, nclient >= 1 ? Int(readuint(buf, r, 4)) : 0)
+            r += 4 * nclient
+            fv == 1 && !iseven(nclient) && (r += 4)   # pad the block to 8 bytes
+            q = r
+        end
+        a.filter_ids = ids
+        a.filter_cd1 = cd1
+    elseif mtype == 12                   # attribute
+        aname, acls, asize, adata = attrinfo(buf, d)
+        if aname == "MATLAB_class"
+            a.mclass = cstring(buf, adata, asize)
+        elseif aname == "MATLAB_int_decode"
+            a.int_decode = Int(readuint(buf, adata, asize))
+        elseif aname == "MATLAB_empty"
+            a.mempty = !iszero(readuint(buf, adata, asize))
+        elseif aname == "MATLAB_sparse"
+            a.msparse = Int(readuint(buf, adata, asize))
+        elseif aname == "MATLAB_object_decode"
+            a.mobject = Int(readuint(buf, adata, asize))
+        end
+    elseif mtype == 16                   # object header continuation
+        addr = readaddr(buf, d, f.osize)
+        len = Int(readuint(buf, d + f.osize, f.lsize))
+        if addr >= 0
+            push!(a.blocks, foff(f, addr))
+            push!(a.blocks, len)
+        end
+    elseif mtype == 17                   # symbol table
+        a.stab_btree = readaddr(buf, d, f.osize)
+        a.stab_heap = readaddr(buf, d + f.osize, f.osize)
+    end
+    return nothing
+end
+
+"Version-1 object header: a fixed 12-byte prefix, then messages on 8-byte boundaries."
+function scan_v1!(a::ObjAcc, f::H5File, o::Int)
+    buf = f.buf
     nmsg = Int(readuint(buf, o + 2, 2))
-    # 12-byte prefix, messages begin at the next 8-byte boundary. Continuation blocks are
-    # appended as (start, length) pairs while scanning.
-    blocks = Int[o + 16, Int(readuint(buf, o + 8, 4))]
-
-    stab_btree = -1
-    stab_heap = -1
-    layout = LAYOUT_NONE
-    data_off = -1
-    data_size = 0
-    nd = 0
-    dims = (0, 0, 0, 0, 0, 0, 0, 0)
-    dt_class = -1
-    dt_size = 0
-    dt_signed = false
-    chunk_btree = -1
-    chunk_ndl = 0
-    chunk_dims = (0, 0, 0, 0, 0, 0, 0, 0, 0)
-    nfilters = 0
-    filter_ids = (0, 0, 0, 0)
-    filter_cd1 = (0, 0, 0, 0)
-    mclass = ""
-    int_decode = 0
-    mempty = false
-    msparse = -1
-    mobject = 0
-
+    push!(a.blocks, o + 16)
+    push!(a.blocks, Int(readuint(buf, o + 8, 4)))
     seen = 0
     bi = 1
-    while bi <= length(blocks) && seen < nmsg
-        p = blocks[bi]
-        stop = p + blocks[bi + 1]
+    while bi <= length(a.blocks) && seen < nmsg
+        p = a.blocks[bi]
+        stop = p + a.blocks[bi + 1]
         bi += 2
         while p + 8 <= stop && seen < nmsg
             mtype = Int(readuint(buf, p, 2))
             msize = Int(readuint(buf, p + 2, 2))
             d = p + 8
             seen += 1
-            if mtype == 1                    # dataspace
-                buf[d + 1] == 0x01 || error("unsupported dataspace version") # noidiom
-                nd = Int(buf[d + 2])
-                nd <= MAXRANK || error("dataspace rank above $MAXRANK is not supported")
-                ls = f.lsize
-                dims = (
-                    dimat(buf, d, 1, nd, ls), dimat(buf, d, 2, nd, ls),
-                    dimat(buf, d, 3, nd, ls), dimat(buf, d, 4, nd, ls),
-                    dimat(buf, d, 5, nd, ls), dimat(buf, d, 6, nd, ls),
-                    dimat(buf, d, 7, nd, ls), dimat(buf, d, 8, nd, ls),
-                )
-            elseif mtype == 3                # datatype
-                # Byte 0 packs version in the high nibble and class in the low nibble.
-                dt_class = Int(buf[d + 1] & 0x0f)
-                dt_signed = !iszero((buf[d + 2] >> 3) & 0x01)
-                dt_size = Int(readuint(buf, d + 4, 4))
-            elseif mtype == 8                # data layout
-                v = Int(buf[d + 1])
-                if v == 3 || v == 4
-                    layout = Int(buf[d + 2])
-                    if layout == LAYOUT_COMPACT
-                        data_size = Int(readuint(buf, d + 2, 2))
-                        data_off = d + 4
-                    elseif layout == LAYOUT_CONTIGUOUS
-                        a = readaddr(buf, d + 2, f.osize)
-                        data_off = a < 0 ? -1 : foff(f, a)
-                    elseif layout == LAYOUT_CHUNKED
-                        # Dimensionality, then the B-tree root, then that many 4-byte chunk
-                        # dimensions. The trailing one is the element size, not an extent.
-                        chunk_ndl = Int(buf[d + 3])
-                        chunk_ndl <= MAXRANK + 1 || error("chunk dimensionality above $(MAXRANK + 1) is not supported")
-                        a = readaddr(buf, d + 3, f.osize)
-                        chunk_btree = a
-                        q = d + 3 + f.osize
-                        chunk_dims = (
-                            cdimat(buf, q, 1, chunk_ndl), cdimat(buf, q, 2, chunk_ndl),
-                            cdimat(buf, q, 3, chunk_ndl), cdimat(buf, q, 4, chunk_ndl),
-                            cdimat(buf, q, 5, chunk_ndl), cdimat(buf, q, 6, chunk_ndl),
-                            cdimat(buf, q, 7, chunk_ndl), cdimat(buf, q, 8, chunk_ndl),
-                            cdimat(buf, q, 9, chunk_ndl),
-                        )
-                    end
-                elseif v == 1 || v == 2
-                    ndl = Int(buf[d + 2])
-                    layout = Int(buf[d + 3])
-                    q = d + 8
-                    if layout != LAYOUT_COMPACT
-                        a = readaddr(buf, q, f.osize)
-                        data_off = a < 0 ? -1 : foff(f, a)
-                        q += f.osize
-                    end
-                    q += ndl * 4                 # dimension sizes, in elements
-                    if layout == LAYOUT_COMPACT
-                        data_size = Int(readuint(buf, q, 4))
-                        data_off = q + 4
-                    end
-                else
-                    error("unsupported data layout version")
-                end
-            elseif mtype == 12               # attribute
-                aname, acls, asize, adata = attrinfo(buf, d)
-                if aname == "MATLAB_class"
-                    mclass = cstring(buf, adata, asize)
-                elseif aname == "MATLAB_int_decode"
-                    int_decode = Int(readuint(buf, adata, asize))
-                elseif aname == "MATLAB_empty"
-                    mempty = !iszero(readuint(buf, adata, asize))
-                elseif aname == "MATLAB_sparse"
-                    msparse = Int(readuint(buf, adata, asize))
-                elseif aname == "MATLAB_object_decode"
-                    mobject = Int(readuint(buf, adata, asize))
-                end
-            elseif mtype == 11               # filter pipeline
-                fv = Int(buf[d + 1])
-                nfilters = Int(buf[d + 2])
-                nfilters <= MAXFILTERS || error("more than $MAXFILTERS filters is not supported")
-                # Version 1 pads the reserved header and every name and client-data block
-                # out to a multiple of 8 bytes; version 2 pads nothing.
-                q = fv == 1 ? d + 8 : d + 2
-                ids = (0, 0, 0, 0)
-                cd1 = (0, 0, 0, 0)
-                for i in 1:nfilters
-                    fid = Int(readuint(buf, q, 2))
-                    # Version 2 omits the name-length field for the registered filters.
-                    named = fv == 1 || fid >= 256
-                    hdrlen = named ? 8 : 6
-                    namelen = named ? Int(readuint(buf, q + 2, 2)) : 0
-                    nclient = Int(readuint(buf, q + hdrlen - 2, 2))
-                    r = q + hdrlen + (fv == 1 ? 8 * cld(namelen, 8) : namelen)
-                    ids = settuple4(ids, i, fid)
-                    cd1 = settuple4(cd1, i, nclient >= 1 ? Int(readuint(buf, r, 4)) : 0)
-                    r += 4 * nclient
-                    fv == 1 && !iseven(nclient) && (r += 4)   # pad the block to 8 bytes
-                    q = r
-                end
-                filter_ids = ids
-                filter_cd1 = cd1
-            elseif mtype == 16               # object header continuation
-                ca = readaddr(buf, d, f.osize)
-                cl = Int(readuint(buf, d + f.osize, f.lsize))
-                if ca >= 0
-                    push!(blocks, foff(f, ca))
-                    push!(blocks, cl)
-                end
-            elseif mtype == 17               # symbol table
-                stab_btree = readaddr(buf, d, f.osize)
-                stab_heap = readaddr(buf, d + f.osize, f.osize)
-            end
+            handle_message!(a, f, mtype, d)
             p = d + msize
         end
     end
-    # A contiguous extent comes from dataspace times datatype: the layout message's stored
-    # size counts elements in versions 1 and 2 but bytes in version 3.
-    if layout == LAYOUT_CONTIGUOUS
-        n = 1
-        for k in 1:nd
-            n *= dims[k]
+    return nothing
+end
+
+"""
+Version-2 object header: a signed block whose size is declared up front, holding messages
+with a one-byte type and a flags byte. Continuation blocks repeat the shape behind an "OCHK"
+signature, and each block ends with a checksum that is not verified here.
+"""
+function scan_v2!(a::ObjAcc, f::H5File, o::Int)
+    buf = f.buf
+    flags = buf[o + 6]
+    p = o + 6                         # past "OHDR", version and flags
+    !iszero(flags & 0x20) && (p += 16)            # access, modification, change, birth times
+    !iszero(flags & 0x10) && (p += 4)             # maximum compact and minimum dense counts
+    sizesize = 1 << (flags & 0x03)
+    chunklen = Int(readuint(buf, p, sizesize))
+    p += sizesize
+    ordered = !iszero(flags & 0x04)
+    push!(a.blocks, p)
+    push!(a.blocks, chunklen)
+    bi = 1
+    while bi <= length(a.blocks)
+        q = a.blocks[bi]
+        stop = q + a.blocks[bi + 1]
+        bi += 2
+        # A continuation block repeats the signature before its messages, and its declared
+        # length covers the signature and the trailing checksum.
+        if sigat(buf, q, OCHK_SIG)
+            q += 4
+            stop -= 4
         end
-        data_size = n * dt_size
+        while q + 4 <= stop
+            mtype = Int(buf[q + 1])
+            msize = Int(readuint(buf, q + 1, 2))
+            d = q + 4 + (ordered ? 2 : 0)
+            # A run of zero bytes is the gap HDF5 leaves before the block's checksum.
+            iszero(mtype) && iszero(msize) && break
+            handle_message!(a, f, mtype, d)
+            q = d + msize
+        end
     end
-    return ObjInfo(
-        stab_btree, stab_heap, layout, data_off, data_size, nd, dims,
-        dt_class, dt_size, dt_signed,
-        chunk_btree, chunk_ndl, chunk_dims, nfilters, filter_ids, filter_cd1,
-        mclass, int_decode, mempty, msparse, mobject,
-    )
+    return nothing
+end
+
+function objinfo(f::H5File, addr::Int)
+    o = foff(f, addr)
+    a = ObjAcc()
+    if sigat(f.buf, o, OHDR_SIG)
+        scan_v2!(a, f, o)
+    elseif f.buf[o + 1] == 0x01 # noidiom
+        scan_v1!(a, f, o)
+    else
+        error("unsupported object header at address ", addr)
+    end
+    return ObjInfo(a)
 end
 
 function heapname(f::H5File, heap::Int, nameoff::Int)
@@ -399,11 +536,23 @@ function walk_group!(names::Vector{String}, addrs::Vector{Int}, f::H5File, btree
     return nothing
 end
 
+"""
+The top-level variables of a file. An old-style group indexes its names through a local heap
+and a B-tree; a compact group carries them directly as link messages.
+"""
 function rootentries(f::H5File)
     names = String[]
     addrs = Int[]
     oi = objinfo(f, f.root)
-    oi.stab_btree < 0 && error("root group has no symbol table; new-style groups are not read yet")
-    walk_group!(names, addrs, f, oi.stab_btree, oi.stab_heap)
+    if oi.stab_btree >= 0
+        walk_group!(names, addrs, f, oi.stab_btree, oi.stab_heap)
+    elseif !isempty(oi.links)
+        for (name, addr) in oi.links
+            push!(names, name)
+            push!(addrs, addr)
+        end
+    else
+        error("the root group has neither a symbol table nor link messages")
+    end
     return names, addrs
 end

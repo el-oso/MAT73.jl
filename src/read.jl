@@ -241,15 +241,20 @@ function matread(f::MatFile, name::String, ::Type{String})
     oi.mempty && return ""
 
     dims = matsize(f.h5, oi)
+    # A char row vector may carry trailing singleton dimensions — libhdf5 writes MATLAB's
+    # 1xN as 1xNx1 — and those say nothing about the shape, so only the first dimension
+    # has to be 1 and the rest multiply out to the length.
     # Only scalars are interpolated here: printing the dimension vector would pull array
     # `show` into the call graph, and it is not statically resolvable.
-    (length(dims) == 2 && dims[1] == 1) ||
+    n = 1
+    for k in 2:length(dims)
+        n *= dims[k]
+    end
+    (length(dims) >= 2 && dims[1] == 1) ||
         error(
         "variable \"", name, "\" is not a 1xN char array; it has rank ", length(dims),
         " and first dimension ", dims[1]
     )
-
-    n = dims[2]
     b = f.h5.buf
     off = oi.data_off
     oi.data_off >= 0 || error("variable \"", name, "\" has no allocated storage")
