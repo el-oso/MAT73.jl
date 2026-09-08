@@ -14,30 +14,43 @@ MATLAB writes version 7.3 files when you use `save -v7.3`.
 ```julia
 using MAT73
 
-f = matopen("results.mat")
-keys(f)                                # the names of the variables
-matclass(f, "A")                       # MAT_DOUBLE
-matsize(f, "A")                        # [128, 128]
+d = matread("results.mat")             # every variable, in a Dict
+d["A"]
 
-A     = matread(f, "A", Matrix{Float64})
-flags = matread(f, "flags", Matrix{Bool})
-z     = matread(f, "z", Matrix{ComplexF64})
-label = matread(f, "label", String)
-
-matwrite("out.mat", "A" => A, "flags" => flags, "label" => label)
+matwrite("out.mat", "A" => d["A"], "label" => "hello")
 ```
 
-## Why you give the type
+One variable at a time:
 
-**You tell `matread` which type you expect. It does not guess.**
+```julia
+f = matopen("results.mat")
+keys(f)                                # the names of the variables
+matsize(f, "A")                        # [128, 128]
+A = matread(f, "A")                    # a Matrix{Float64}
+```
 
-Think of a parcel with no label. You must say what is inside before you open it.
+## Two ways to read
 
-The reason is a compiler tool named `juliac`. It builds a small program from Julia code. It
-uses the option `--trim=safe`. This option rejects any function that can return more than one
-type. A file can hold many types. Therefore the caller states the type.
+**Use the short way. Give the type only if you build a small compiled program.**
 
-The package then does 3 checks against the file:
+| | short way | with the type |
+|---|---|---|
+| whole file | `matread(path)` | — |
+| one variable | `matread(f, "A")` | `matread(f, "A", Matrix{Float64})` |
+| works in a small program | no | yes |
+
+The short way works out the type from the file, as MAT.jl does. It is the one to use in
+ordinary Julia code.
+
+The long way is for a tool named `juliac`. That tool builds a small program from Julia code.
+Its option `--trim=safe` rejects any function that can return more than one type. So the
+caller states the type instead.
+
+A program that never calls the short way does not carry it. The build removes it.
+
+## What the check does
+
+When you give the type, the package does 3 checks against the file:
 
 1. the kind of number, such as a whole number or a decimal number
 2. the width in bytes

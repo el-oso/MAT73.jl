@@ -27,6 +27,7 @@ include("hdf5.jl")
 include("chunked.jl")
 include("mcos.jl")
 include("read.jl")
+include("convenience.jl")
 include("write.jl")
 
 end # module MAT73

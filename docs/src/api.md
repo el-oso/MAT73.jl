@@ -1,6 +1,15 @@
 # Functions and types
 
-## Reading
+## Reading, the short way
+
+These work out the type from the file. They cannot be used inside a small compiled program.
+
+```@docs
+matread(::String)
+matread(::MAT73.MatFile, ::Any)
+```
+
+## Reading, with the type
 
 ```@docs
 matopen

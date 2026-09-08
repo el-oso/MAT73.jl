@@ -10,17 +10,19 @@ MATLAB writes version 7.3 files when you use `save -v7.3`.
 ```julia
 using MAT73
 
+d = matread("results.mat")             # every variable, in a Dict
+d["A"]
+
+matwrite("out.mat", "A" => d["A"], "label" => "hello")
+```
+
+One variable at a time:
+
+```julia
 f = matopen("results.mat")
 keys(f)                                # the names of the variables
-matclass(f, "A")                       # MAT_DOUBLE
 matsize(f, "A")                        # [128, 128]
-
-A     = matread(f, "A", Matrix{Float64})
-flags = matread(f, "flags", Matrix{Bool})
-z     = matread(f, "z", Matrix{ComplexF64})
-label = matread(f, "label", String)
-
-matwrite("out.mat", "A" => A, "flags" => flags, "label" => label)
+A = matread(f, "A")                    # a Matrix{Float64}
 ```
 
 ## What this package covers
@@ -34,21 +36,30 @@ Inside version 7.3 it reads numbers, true and false values, text, complex number
 arrays. It reads cell arrays, structs and objects. [The format](format.md) has the full list,
 and the list of what it cannot do.
 
-## Why you give the type
+## Two ways to read
 
-**You tell `matread` which type you expect. It does not guess.**
+**Use the short way. Give the type only if you build a small compiled program.**
+
+| | short way | with the type |
+|---|---|---|
+| whole file | `matread(path)` | — |
+| one variable | `matread(f, "A")` | `matread(f, "A", Matrix{Float64})` |
+| works in a small program | no | yes |
+
+The short way works out the type from the file, as MAT.jl does. Use it in ordinary Julia code.
+
+The long way exists for a tool named `juliac`. That tool builds a small program from Julia
+code. Its option `--trim=safe` rejects any function that can return more than one type. A file
+can hold many types. So the caller states the type instead.
 
 Think of a parcel with no label. You must say what is inside before you open it.
 
-The reason is a compiler tool named `juliac`. It builds a small program from Julia code. It
-uses the option `--trim=safe`. This option rejects any function that can return more than one
-type. A file can hold many types. Therefore the caller states the type.
+A program that never calls the short way does not carry it. The build removes it. So the short
+way costs nothing to a program that does not use it.
 
-```julia
-A = matread(f, "A", Matrix{Float64})
-```
+## What the check does
 
-The package then does 3 checks against the file:
+When you give the type, the package does 3 checks against the file:
 
 1. the kind of number, such as a whole number or a decimal number
 2. the width in bytes
@@ -61,6 +72,11 @@ then get numbers that look real but are not.
 Use [`matclass`](@ref) first if you do not know what is in the file. It gives
 `MAT_UNSUPPORTED` for a type this package does not read. It does not stop with an error, so
 you can look through a whole file safely.
+
+## This package or MAT.jl for the short way
+
+Both give you a `Dict` from `matread(path)`. MAT.jl builds full values for MATLAB types such
+as `table` and `datetime`. This package does not. See [The format](format.md).
 
 ## Order of the dimensions
 

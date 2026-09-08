@@ -10,8 +10,9 @@
         return h5_matopen(io -> h5_read(io, name), fixture(file))
     end
 
-    "MAT.jl unwraps a 1x1 variable to a scalar; a raw read keeps it a matrix."
-    boxed(x) = x isa AbstractArray ? x : fill(x, 1, 1)
+    "MAT.jl unwraps a 1x1 variable to a scalar; a raw read keeps it a matrix. Text is a
+    scalar in both, so it is left alone."
+    boxed(x) = (x isa AbstractArray || x isa AbstractString) ? x : fill(x, 1, 1)
 end
 
 @testitem "variable names match the oracle" setup = [Fixtures] begin
