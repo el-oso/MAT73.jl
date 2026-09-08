@@ -1,0 +1,66 @@
+@testsnippet Fixtures begin
+    using PureMAT
+    using MAT: matopen as h5_matopen, read as h5_read
+
+    const FIXTURES = joinpath(@__DIR__, "fixtures", "v7.3")
+    fixture(name) = joinpath(FIXTURES, name)
+
+    "Read `name` through MAT.jl, i.e. through libhdf5 — an oracle independent of this package."
+    function oracle(file, name)
+        return h5_matopen(io -> h5_read(io, name), fixture(file))
+    end
+end
+
+@testitem "variable names match the oracle" setup = [Fixtures] begin
+    for file in ("simple.mat", "array.mat", "logical.mat", "complex.mat", "char_unicode.mat")
+        f = matopen(fixture(file))
+        expected = h5_matopen(keys, fixture(file))
+        @test sort(keys(f)) == sort(collect(expected))
+    end
+end
+
+@testitem "numeric values match the oracle" setup = [Fixtures] begin
+    # (file, variable, element type). MAT.jl unwraps a 1x1 to a scalar, so the comparison
+    # below wraps it back up rather than asking this package to guess.
+    cases = [
+        ("simple.mat", "double", Float64), ("simple.mat", "single", Float32),
+        ("simple.mat", "int8", Int8), ("simple.mat", "int16", Int16),
+        ("simple.mat", "int32", Int32), ("simple.mat", "int64", Int64),
+        ("simple.mat", "uint8", UInt8), ("simple.mat", "uint16", UInt16),
+        ("simple.mat", "uint32", UInt32), ("simple.mat", "uint64", UInt64),
+        ("array.mat", "a1x2", Float64), ("array.mat", "a2x1", Float64),
+        ("array.mat", "a2x2", Float64), ("array.mat", "a2x2x2", Float64),
+    ]
+    for (file, name, T) in cases
+        ref = oracle(file, name)
+        refa = ref isa AbstractArray ? ref : fill(ref, 1, 1)
+        f = matopen(fixture(file))
+        got = matread(f, name, Array{T, ndims(refa)})
+        @test got == refa
+        @test matsize(f, name) == size(refa)
+    end
+end
+
+@testitem "a2x2 is not symmetric, so element order is checked too" setup = [Fixtures] begin
+    # A sum or a symmetric matrix would hide a transposed read.
+    f = matopen(fixture("array.mat"))
+    A = matread(f, "a2x2", Matrix{Float64})
+    @test A == [1.0 3.0; 4.0 2.0]
+    @test A[2, 1] == 4.0
+end
+
+@testitem "a mismatched datatype is an error, never a reinterpretation" setup = [Fixtures] begin
+    f = matopen(fixture("simple.mat"))
+    @test_throws "4-byte elements, not 8" matread(f, "single", Matrix{Float64})
+    @test_throws "datatype class" matread(f, "double", Matrix{Int64})
+    @test_throws "opposite signedness" matread(f, "int32", Matrix{UInt32})
+    @test_throws "rank" matread(f, "double", Vector{Float64})
+    @test_throws "no variable named" matread(f, "nope", Matrix{Float64})
+end
+
+@testitem "unsupported storage is refused, not misread" setup = [Fixtures] begin
+    # partial.mat is chunked and deflated; neither is implemented yet.
+    f = matopen(fixture("partial.mat"))
+    @test "var1" in keys(f)
+    @test_throws "chunked" matread(f, "var1", Matrix{Float64})
+end
