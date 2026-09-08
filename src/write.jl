@@ -35,8 +35,12 @@ end
 """
     MatWriter()
 
-Collect variables, then hand the result to [`matwrite`](@ref). Addresses cannot be assigned
-until every variable's size is known, so nothing reaches the file before then.
+Collect variables, then give the result to [`matwrite`](@ref).
+
+Use this when you build a set of variables in a loop. Add each one with `push!`.
+
+Nothing is written until the end. The place of each array in the file depends on the size of
+every other array, so all sizes must be known first.
 """
 struct MatWriter
     entries::Vector{MatEntry}
@@ -255,8 +259,14 @@ end
     matwrite(path, w::MatWriter)
     matwrite(path, pairs...)
 
-Write a MATLAB v7.3 file. Every address is assigned before anything is serialised, because a
-dataset's header records where its data lives.
+Write a MATLAB `.mat` file of version 7.3.
+
+```julia
+matwrite("out.mat", "A" => A, "flags" => flags, "label" => "hello")
+```
+
+MATLAB reads the result. The file holds numbers, `Bool` values and text. It is not compressed,
+so it is larger than a file MATLAB writes.
 """
 function matwrite(path::String, w::MatWriter)
     isempty(w.entries) && error("nothing to write")

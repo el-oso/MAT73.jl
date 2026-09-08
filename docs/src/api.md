@@ -1,4 +1,4 @@
-# API
+# Functions and types
 
 ## Reading
 
@@ -21,10 +21,10 @@ matwrite
 MAT73.MatWriter
 ```
 
-`matwrite(path, pairs...)` covers the common case. For anything built up in a loop, collect
-into a [`MAT73.MatWriter`](@ref) with `push!(w, name, value)` and hand it over at the end;
-addresses cannot be assigned until every variable's size is known, so nothing reaches the file
-before then.
+**Use `matwrite(path, pairs...)` for the simple case.**
+
+For a set of variables built in a loop, collect them first. Addresses inside the file depend
+on the size of every variable. So nothing is written until the end.
 
 ```julia
 w = MatWriter()

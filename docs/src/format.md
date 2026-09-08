@@ -1,147 +1,180 @@
 # The format
 
-A `.mat` file written by `save -v7.3` is an HDF5 file with a MATLAB banner in front of it and
-a handful of `MATLAB_*` attributes beside each dataset. HDF5 says how the bytes are stored;
-those attributes say what they mean.
+**A version 7.3 `.mat` file is an HDF5 file with a MATLAB label in front and MATLAB notes
+beside each array.**
 
-## What is read
+HDF5 is a general file format for arrays. It says how the bytes are stored. It does not say
+what MATLAB means by them. The notes beside each array carry that meaning. Their names all
+start with `MATLAB_`.
 
-| MATLAB class | Julia type |
+## What this package reads
+
+| MATLAB type | Julia type |
 |---|---|
 | `double`, `single` | `Array{Float64,N}`, `Array{Float32,N}` |
-| `int8`–`int64`, `uint8`–`uint64` | `Array{T,N}` |
+| `int8` to `int64`, `uint8` to `uint64` | `Array{T,N}` |
 | `logical` | `Array{Bool,N}` |
-| complex numeric | `Array{Complex{T},N}` |
-| `char`, `1xN` | `String` |
-| `char`, any shape | `Array{Char,N}`, UTF-16 code units |
-| empty arrays | shape preserved, so a `0x3` stays `0x3` |
-| `cell` | `Array{MatRef,N}`, one reference per element |
-| `struct` | a group; fields by path, `matkeys` lists them |
-| struct arrays | fields are `Array{MatRef,N}`, one reference per element |
+| complex numbers | `Array{Complex{T},N}` |
+| `char`, one row | `String` |
+| `char`, any shape | `Array{Char,N}`, as 16-bit units |
+| empty arrays | the shape stays, so a `0x3` stays `0x3` |
+| `cell` | `Array{MatRef,N}`, one mark for each item |
+| `struct` | fields by path; `matkeys` gives the names |
+| struct arrays | each field is an `Array{MatRef,N}` |
+| objects of a class you wrote | properties by path |
 
-## Containers
+## Boxes with mixed contents
 
-A cell array's elements have no common type, and neither do a struct array's, so following
-them eagerly would mean returning `Any`. Instead they come back as [`MatRef`](@ref) values,
-and you read each one with the type you expect — the same discipline as everywhere else:
+**A cell array gives you marks, not values. You follow one mark at a time.**
+
+Think of a cloakroom. You get a numbered ticket, not the coat. You hand back one ticket and
+get one coat.
+
+The items in a cell array can have different types. The same is true for each field of a
+struct array. A function that returned all of them at once would have no single type. So you
+get one mark for each item. The mark type is [`MatRef`](@ref).
 
 ```julia
 cells = matread(f, "c", Matrix{MatRef})
-matclass(f, cells[1])                      # survey before committing to a type
-matread(f, cells[1], Matrix{Float64})      # follow it
+matclass(f, cells[1])                      # look before you choose a type
+matread(f, cells[1], Matrix{Float64})      # follow the mark
 
-matkeys(f, "s")                            # field names of a struct
-matread(f, "s/a", Matrix{Float64})         # a field by path, nested paths allowed
+matkeys(f, "s")                            # the field names of a struct
+matread(f, "s/a", Matrix{Float64})         # one field, by path
 ```
 
-Nesting works the same way: a cell inside a cell yields another `Array{MatRef}`.
+A cell inside a cell gives you more marks. The steps stay the same. Paths can also go deeper,
+such as `"s/inner/a"`.
 
-## MATLAB objects
+## Objects of a class
 
-A `classdef` instance holds no data of its own. The variable is a `uint32` array of indices,
-and the values live in `#subsystem#` behind MATLAB's own object tables — a format MathWorks
-does not document, [reverse-engineered by the
-community](https://github.com/foreverallama/matio/blob/main/docs/subsystem_data_format.md).
+**An object holds no data. It holds numbers that point into a table.**
 
-The indirection is resolved here, so an object behaves like a struct:
+Think of a library catalogue card. The card is not the book. The card tells you the shelf.
+
+MATLAB keeps that table in a hidden entry named `#subsystem#`. MathWorks does not publish the
+layout of the table. People worked it out by reading files. The notes they wrote are
+[here](https://github.com/foreverallama/matio/blob/main/docs/subsystem_data_format.md).
+
+This package follows the numbers for you. An object then behaves like a struct.
 
 ```julia
-matobjectclass(f, "obj")             # "TestClasses.BasicClass", namespace included
-matkeys(f, "obj")                    # property names
-matread(f, "obj/a", Matrix{Float64}) # a property by path
+matobjectclass(f, "obj")             # "TestClasses.BasicClass", with the namespace
+matkeys(f, "obj")                    # the property names
+matread(f, "obj/a", Matrix{Float64}) # one property, by path
 ```
 
-`matclass` still reports `MAT_UNSUPPORTED` for an object, because it answers the
-plain-array question and an object is not a plain array; `matobjectclass` is the one to ask.
+Properties added later with `addprop` are in the list too. Each one is itself a small object.
+It holds the name you gave and the value. This package follows that step as well.
 
-Properties added at run time with `addprop` are listed and read alongside the ones the class
-declares. Each is itself an object, of class `meta.DynamicProperty`, holding the name it was
-given and its value; that indirection is followed here.
+`matclass` still reports `MAT_UNSUPPORTED` for an object. That function answers one question:
+is this a plain array? An object is not. Ask `matobjectclass` instead.
 
-Only properties whose value is stored in the subsystem's cell array can be read. A property
-held inline — an enumeration or a small attribute — raises rather than being guessed at.
+## Empty arrays
 
-An empty array is not stored as zero elements. MATLAB writes a `uint64` vector holding the
-dimensions, tagged with `MATLAB_empty`, which is how the shape survives.
+**An empty array keeps its shape.**
 
-Two attributes do the work that HDF5 cannot: `MATLAB_class` names the class, and
-`MATLAB_int_decode` distinguishes `logical` (1) and `char` (2) from the plain integers they are
-otherwise indistinguishable from. Reading a logical array as `UInt8` is an error rather than a
-silent success, and vice versa.
+MATLAB does not store zero items. It stores a short list of the dimensions, with a note named
+`MATLAB_empty`. So a `0x3` array stays a `0x3` array.
 
-## Storage
+## Two notes do the work
 
-Both shapes of the format are read:
+HDF5 cannot tell a true-or-false value from a small whole number. They have the same bytes.
+Two MATLAB notes settle it:
 
-| | MATLAB writes | libhdf5 writes |
+- `MATLAB_class` gives the MATLAB type name, such as `double`.
+- `MATLAB_int_decode` marks `logical` with a 1 and `char` with a 2.
+
+If you read a `logical` array as `UInt8`, the package stops with an error. The reverse also
+stops. Neither case is a silent success.
+
+## How the bytes are stored
+
+**Two programs write this format in 2 different shapes. This package reads both.**
+
+| | MATLAB writes | The HDF5 C library writes |
 |---|---|---|
 | Superblock | version 0 | version 2 |
 | Object headers | version 1 | version 2 |
-| Groups | local heap + version-1 B-tree | link messages |
+| Groups | local heap and a version 1 tree | link messages |
 
-MATLAB produces the first column. libhdf5 produces the second, and so do HDF5.jl, MAT.jl and
-this package's own writer — MATLAB reads both.
+MATLAB writes the left column. The HDF5 C library writes the right column. HDF5.jl, MAT.jl and
+this package all write the right column. MATLAB reads both.
 
-Data layout: compact, contiguous and chunked, the last with the deflate and shuffle filters.
-This matters more than it looks. MATLAB compresses anything beyond a few hundred bytes, so
-chunked storage is the path essentially every real array takes; only the smallest variables
-are stored compact.
+The bytes of an array sit in one of 3 layouts:
 
-## What is written
+1. **compact**, inside the header, for very small arrays
+2. **contiguous**, in one block
+3. **chunked**, in blocks, and often compressed
 
-`matwrite` emits the libhdf5 shape: a 512-byte user block holding the MATLAB banner,
-superblock version 2, version-2 object headers, a root group of link messages, and contiguous
-uncompressed datasets carrying the `MATLAB_*` attributes.
+**Most real arrays use the chunked layout.** MATLAB compresses anything above a few hundred
+bytes. Only the smallest variables are compact. This package reads chunked data with the
+deflate and shuffle filters.
 
-The version-2 structures each carry a Jenkins lookup3 checksum. libhdf5 verifies them, so a
-wrong checksum is rejected outright rather than tolerated.
+## What this package writes
 
-Numeric arrays, `Bool` and strings are written. Compression on write is not implemented, so
-files are larger than MATLAB's own.
+`matwrite` writes the same shape as the HDF5 C library:
 
-## What is not handled
+1. a 512-byte block in front, holding the MATLAB label
+2. superblock version 2
+3. version 2 object headers
+4. a root group made of link messages
+5. arrays in one block each, with no compression
+6. the `MATLAB_` notes beside each array
 
-Two limitations are silent, so they come first. Each gives a right answer to a slightly
-different question than the one you asked.
+Version 2 parts each carry a running total of their own bytes. The HDF5 C library checks these
+totals. A wrong total is rejected. It is not accepted quietly.
 
-- **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
-  not necessarily MATLAB's. The names and values are right, the order may not be. MATLAB's
-  order lives in the `MATLAB_fields` attribute, a variable-length string array that needs the
-  global heap.
-- **Object arrays.** An object variable may name several instances; only the first is
-  followed, so `matobjectclass`, `matkeys` and a property path all describe that one.
+This package writes numbers, `Bool` values and text. It does not compress. Files are therefore
+larger than the files MATLAB writes.
 
-The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
+## What this package does not do
 
-- **Sparse arrays.** When implemented, `SparseArrays` will be a weak dependency: it pulls
-  `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before `main`
-  when the depot is unreachable, so it must stay off the default path.
-- **Built-in MATLAB objects** — `table`, `datetime`, `string` arrays and function handles.
-  These are MCOS objects like any `classdef` instance, and their class and properties read
-  fine, but reconstructing the value MATLAB would show means knowing what each built-in class
-  does with its properties. `classdef` instances of your own classes have no such layer.
-- **Properties stored inline.** A property whose value is an enumeration or a small attribute
-  is held in the tables rather than in the cell array, and reading one raises. Only
-  cell-valued properties have somewhere to point at.
-- **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
-  units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
-  its two surrogates. The `String` method decodes properly. MAT.jl instead decodes a char
-  matrix to one `String` per row; this package returns what MATLAB stores.
-- **Compression on write.** Written datasets are contiguous and uncompressed, so files are
-  larger than MATLAB's own.
+Two limits are quiet. The package gives an answer, but not the answer you asked for. These
+come first, because a quiet limit is easy to miss.
 
-Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
-deflate and shuffle. MATLAB writes none of these, though `h5repack` and other HDF5 writers do.
+- **The order of struct fields.** `matkeys` gives the names in file order. MATLAB may use a
+  different order. The names are correct. The values are correct. Only the order can differ.
+  MATLAB keeps its order in a note named `MATLAB_fields`. That note uses a storage area this
+  package does not read yet.
+- **Arrays of objects.** One variable can point to many objects. This package uses the first
+  one. `matobjectclass`, `matkeys` and a property path all describe that first object.
 
-`keys(f)` lists MATLAB's own entries — `#refs#` and `#subsystem#` — alongside your variables.
-They are where cell contents and object tables live, and skipping them is left to the caller.
+The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
-Rank is capped at 8 dimensions and a filter pipeline at 4 entries, both far above anything
-MATLAB produces.
+- **Sparse arrays.** When this is added, `SparseArrays` must be an optional dependency. It
+  pulls in a library that looks up files on disk when it starts. A small compiled program then
+  stops before it runs, if it cannot find those files. So it must stay off the normal path.
+- **Objects of the MATLAB types** `table`, `datetime`, `string` and function handles. These
+  are objects like any other. Their class and their properties read correctly. Building the
+  value that MATLAB shows needs a rule for each of those types. Classes you write yourself
+  need no such rule.
+- **Properties kept in the table.** Most properties point to a value elsewhere. Some small
+  ones sit in the table itself. Only the first kind has an address to follow, so the second
+  kind stops with an error.
+- **Text above code point 65535.** MATLAB keeps text as 16-bit units. `Array{Char,N}` gives
+  you those units, one for one. One rare character then arrives as 2 units. The `String`
+  method joins them correctly. MAT.jl gives one `String` for each row instead. This package
+  gives what MATLAB stores.
+- **Compression when writing.** Arrays are written in one block each.
 
-## Testing
+`keys(f)` also lists 2 names that MATLAB uses for itself: `#refs#` and `#subsystem#`. They
+hold the contents of cells and the object tables. Skip them if you only want your own
+variables.
 
-Values are compared against MAT.jl, which reads through libhdf5 and is therefore an oracle
-independent of this implementation, over fixtures MATLAB itself wrote. Written files are read
-back through libhdf5 for the same reason — it verifies the checksums and the structure, so a
-malformed file fails there rather than passing a self-consistent round-trip.
+The package does not read some file layouts: fractal heap groups, superblock versions 1 and 3,
+and filters other than deflate and shuffle. MATLAB does not write these. Other tools can.
+
+Two limits are set by fixed sizes in the code: 8 dimensions for an array, and 4 filters for
+one array. MATLAB stays far below both.
+
+## Tests
+
+**Every value is compared against a second, independent reader.**
+
+The tests use MAT.jl. That package reads through the HDF5 C library. It shares no code with
+this one. The test files come from MATLAB itself.
+
+Files that this package writes are read back through the same C library. That library checks
+the running totals and the structure. A bad file fails there. A file cannot pass by being
+wrong in the same way twice.

@@ -52,12 +52,16 @@ const Link = Tuple{String, Int}
 """
     MatRef
 
-A reference to another object in the same file. A MATLAB cell array is stored as an array of
-these, and so is each field of a struct array, because the elements have no common type.
+A mark that points to another item in the same file.
 
-Pass one back to [`matread`](@ref), [`matclass`](@ref) or [`matsize`](@ref) exactly as you
-would a variable name. Keeping the reference rather than following it is what lets a
-heterogeneous container be read with a concrete type at every step.
+Think of a numbered ticket from a cloakroom. The ticket is not the coat. You hand it back to
+get the coat.
+
+A MATLAB cell array holds one mark for each item. So does each field of a struct array. The
+items can have different types, so no single type covers them all.
+
+Give a mark to [`matread`](@ref), [`matclass`](@ref) or [`matsize`](@ref), in the place where
+you would give a variable name. You then state the type of that one item.
 """
 struct MatRef
     addr::Int

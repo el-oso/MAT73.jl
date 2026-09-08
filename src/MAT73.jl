@@ -1,17 +1,17 @@
 """
     MAT73
 
-Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library.
+Read and write MATLAB `.mat` files of version 7.3. This package uses only Julia code. It does
+not use the HDF5 C library. It also works inside a small compiled program.
 
-The reader covers the subset of HDF5 that MATLAB's own writer emits, and is written to
-survive `juliac --trim=safe`, so it can be used from a trimmed binary. Callers state the
-type they expect:
+You tell `matread` which type you expect. It does not guess. The type of a variable comes from
+the file, and a function that could return any type would not build into a small program.
 
 ```julia
 f = matopen("data.mat")
-keys(f)                              # top-level variable names
-matsize(f, "A")                      # MATLAB dimensions
-A = matread(f, "A", Matrix{Float64}) # concrete return type, checked against the file
+keys(f)                              # the names of the variables
+matsize(f, "A")                      # the size, as MATLAB gives it
+A = matread(f, "A", Matrix{Float64}) # checked against the file
 ```
 """
 module MAT73

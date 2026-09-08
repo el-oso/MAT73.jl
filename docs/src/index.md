@@ -1,13 +1,17 @@
 # MAT73.jl
 
-Read and write HDF5-based MATLAB `.mat` files — the format `save -v7.3` produces — in pure
-Julia, with no HDF5 C library, and from a binary built with `juliac --trim=safe`.
+**This package reads and writes MATLAB `.mat` files of version 7.3. It uses only Julia code.
+It does not use the HDF5 C library. It also works inside a small compiled program.**
+
+MATLAB writes version 7.3 files when you use `save -v7.3`.
+
+## Example
 
 ```julia
 using MAT73
 
 f = matopen("results.mat")
-keys(f)                                # top-level variable names
+keys(f)                                # the names of the variables
 matclass(f, "A")                       # MAT_DOUBLE
 matsize(f, "A")                        # [128, 128]
 
@@ -19,44 +23,69 @@ label = matread(f, "label", String)
 matwrite("out.mat", "A" => A, "flags" => flags, "label" => label)
 ```
 
-## Scope
+## What this package covers
 
-This package handles the HDF5-based format only. MATLAB's earlier formats — v4 through v7 —
-are a different container entirely; [MAT.jl](https://github.com/JuliaIO/MAT.jl) already covers
-them in the Julia ecosystem, and this package does not duplicate that.
+**It reads one file format only: the format built on HDF5.**
 
-Within v7.3 it covers numeric arrays, logical, char, complex and empty arrays, over every
-storage layout MATLAB emits. [The format](format.md) lists exactly what is and is not handled.
+MATLAB has older formats, from version 4 to version 7. They use a different container. MAT.jl
+already covers them in the Julia ecosystem. This package does not repeat that work.
 
-## Why the type is an argument
+Inside version 7.3 it reads numbers, true and false values, text, complex numbers and empty
+arrays. It reads cell arrays, structs and objects. [The format](format.md) has the full list,
+and the list of what it cannot do.
 
-A variable's type is a property of the file, so the obvious signature would return `Any`. That
-is exactly what `--trim=safe` rejects: it refuses any call whose return type is not known
-statically. The caller therefore states the type it expects:
+## Why you give the type
+
+**You tell `matread` which type you expect. It does not guess.**
+
+Think of a parcel with no label. You must say what is inside before you open it.
+
+The reason is a compiler tool named `juliac`. It builds a small program from Julia code. It
+uses the option `--trim=safe`. This option rejects any function that can return more than one
+type. A file can hold many types. Therefore the caller states the type.
 
 ```julia
 A = matread(f, "A", Matrix{Float64})
 ```
 
-The on-disk datatype class, width and signedness are all checked against `T`, and a mismatch
-raises rather than reinterpreting the bytes. That matters more than it sounds: a size-only
-check reads past the end of a smaller dataset and returns plausible garbage.
+The package then does 3 checks against the file:
 
-Use [`matclass`](@ref) to survey a file first. It returns `MAT_UNSUPPORTED` instead of throwing,
-so a caller can skip what it cannot handle without exception handling.
+1. the kind of number, such as a whole number or a decimal number
+2. the width in bytes
+3. the sign, for whole numbers
 
-## Dimension order
+If a check fails, the package stops with an error. It does not read the bytes as the wrong
+type. This matters. A check on the width alone can read past the end of a smaller array. You
+then get numbers that look real but are not.
 
-MATLAB stores dimensions reversed relative to HDF5, and its elements column-major — which is
-also Julia's order. Filling a Julia array in file order under the reversed dimensions therefore
-reproduces the MATLAB array exactly. Nothing is transposed, and no copy is made to reorder.
+Use [`matclass`](@ref) first if you do not know what is in the file. It gives
+`MAT_UNSUPPORTED` for a type this package does not read. It does not stop with an error, so
+you can look through a whole file safely.
 
-## Comparison with MAT.jl
+## Order of the dimensions
 
-[MAT.jl](https://github.com/JuliaIO/MAT.jl) is the general-purpose choice: it reads every MAT
-version, including cell arrays, structs, sparse matrices and MATLAB objects. It reaches v7.3
-through HDF5.jl and therefore through libhdf5.
+**You get the same array that MATLAB shows. Nothing is turned around. Nothing is copied to
+reorder it.**
 
-Reach for MAT73.jl when you need one of the two things it does differently: no C library in the
-dependency tree, or a `.mat` read from inside a trimmed binary. Its test suite compares against
-MAT.jl on MATLAB-written files, so the two agree where they overlap.
+Two facts cancel each other:
+
+1. MATLAB and Julia both put the first dimension down the columns.
+2. The file keeps the list of dimensions in the opposite order.
+
+So the package fills a Julia array in file order, under the reversed dimensions. The result
+matches MATLAB.
+
+## This package or MAT.jl
+
+**Use MAT.jl unless you need one of 2 things.**
+
+MAT.jl is the general choice. It reads every MATLAB version. It builds full values for tables,
+dates and other MATLAB types. It reaches version 7.3 through the HDF5 C library.
+
+Use MAT73.jl when you need:
+
+1. no C library in your list of dependencies, or
+2. to read a `.mat` file inside a small compiled program.
+
+The tests compare this package against MAT.jl on files that MATLAB wrote. The two agree where
+they overlap.

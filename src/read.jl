@@ -4,9 +4,10 @@
 """
     MatClass
 
-The MATLAB class of a variable, as recorded in its `MATLAB_class` attribute. `MAT_UNSUPPORTED`
-covers everything this package does not read yet, so a caller can walk a file and skip what it
-cannot handle without an exception.
+The MATLAB type of a variable, taken from the note beside it in the file.
+
+`MAT_UNSUPPORTED` covers everything this package does not read. So you can look through a
+whole file and skip what you cannot use. Nothing stops with an error.
 """
 @enum MatClass::UInt8 begin
     MAT_UNSUPPORTED
@@ -49,8 +50,9 @@ end
 """
     MatFile
 
-An open MATLAB v7.3 file together with its top-level variable names and their object-header
-addresses. Construct one with [`matopen`](@ref).
+An open MATLAB file, with the names of its variables and the place of each one.
+
+Make one with [`matopen`](@ref).
 """
 struct MatFile
     h5::H5File
@@ -75,7 +77,7 @@ end
 """
     matopen(path) -> MatFile
 
-Open a MATLAB v7.3 (HDF5-based) `.mat` file and read its top-level variable list.
+Open a MATLAB `.mat` file of version 7.3 and read the list of variable names in it.
 """
 function matopen(path::String)
     h5 = open_h5(path)
@@ -125,8 +127,12 @@ end
 """
     matobjectclass(f, name) -> String
 
-Full class name of a MATLAB object, namespace included, as in `TestClasses.BasicClass`. An
-empty string when the variable is not an object.
+Give the full class name of a MATLAB object, such as `TestClasses.BasicClass`. The name
+includes the namespace.
+
+Give an empty string if the variable is not an object.
+
+If the variable points to more than one object, this describes the first one.
 """
 function matobjectclass(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
@@ -210,8 +216,13 @@ end
 """
     matkeys(f, path) -> Vector{String}
 
-Names of the members of a group: the fields of a struct, or the variables at the top level
-when `path` is empty.
+Give the names inside a group.
+
+- For a struct, these are the field names.
+- For an object, these are the property names. Properties added with `addprop` are included.
+- For an empty `path`, these are the variable names at the top level of the file.
+
+The names come in file order. MATLAB may use a different order for the fields of a struct.
 """
 function matkeys(f::MatFile, path::String)
     isempty(path) && return copy(f.names)
@@ -226,8 +237,13 @@ matkeys(f::MatFile, r::MatRef) = groupentries(f.h5, r.addr)[1]
 """
     matclass(f, name) -> MatClass
 
-The MATLAB class of variable `name`. Returns `MAT_UNSUPPORTED` rather than throwing for a
-class this package does not read, so a file can be surveyed before anything is read from it.
+Give the MATLAB type of a variable.
+
+Give `MAT_UNSUPPORTED` for a type this package does not read. This does not stop with an
+error, so you can look through a whole file first.
+
+An object and a sparse array both report `MAT_UNSUPPORTED`. Neither is a plain array. For an
+object, use [`matobjectclass`](@ref) instead.
 """
 function matclass(f::MatFile, key)
     oi = objinfo(f.h5, address(f, key))
@@ -247,10 +263,10 @@ end
 """
     matsize(f, name) -> Vector{Int}
 
-Size of variable `name` in MATLAB's own dimension order.
+Give the size of a variable, in the order MATLAB uses.
 
-A `Vector` rather than a tuple: the rank is a property of the file, so a tuple would have a
-length only known at run time and the return type would not be concrete.
+The result is a `Vector`, not a tuple. The number of dimensions comes from the file, so a
+tuple would have no fixed length.
 """
 function matsize(f::MatFile, key)
     return matsize(f.h5, objinfo(f.h5, address(f, key)))
@@ -340,15 +356,25 @@ end
 """
     matread(f, name, Array{T,N}) -> Array{T,N}
 
-Read variable `name`, which must hold an `N`-dimensional array of `T`. The on-disk datatype
-is checked against `T` and a mismatch is an error rather than a reinterpretation.
+Read a variable as an array of `T` with `N` dimensions.
 
-`T` may be a real number type, `Bool` for a MATLAB logical array, or `Complex{T}` for a
-complex one. Use the `String` method for char data.
+You state the type. This function does not guess it. It then checks the file against `T` in
+3 ways: the kind of number, the width in bytes, and the sign. If a check fails, it stops with
+an error. It does not read the bytes as the wrong type.
 
-MATLAB stores its dimensions reversed and its elements column-major, so filling a Julia array
-in file order under the reversed dimensions reproduces the MATLAB array as written — no
-transpose is involved.
+`T` can be:
+
+- a number type, such as `Float64` or `Int32`
+- `Bool`, for a MATLAB `logical` array
+- `Complex{T}`, for a complex array
+- `Char`, for text of any shape
+- `MatRef`, for a cell array or a field of a struct array
+
+Use the `String` method instead for one row of text.
+
+`name` can be a path, such as `"s/a"`. It can also be a [`MatRef`](@ref).
+
+The result matches what MATLAB shows. Nothing is turned around.
 """
 function matread(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
     name = keyname(key)
@@ -394,12 +420,14 @@ end
 """
     matread(f, name, Array{Char,N}) -> Array{Char,N}
 
-Read a MATLAB char array of any shape. A char matrix is several rows of text with no single
-string form, so it comes back elementwise; use the `String` method for a `1xN` row vector.
+Read MATLAB text of any shape, one item at a time.
 
-MATLAB holds char data as UTF-16 code units, or as bytes for purely 7-bit text. Either way
-one code unit becomes one `Char`, so text outside the basic multilingual plane — which MATLAB
-stores as a surrogate pair — comes back as its two surrogates rather than one character.
+MATLAB text with more than one row has no single string form. So you get an array. For one row
+of text, use the `String` method instead.
+
+MATLAB keeps text as 16-bit units. Each unit becomes one `Char`. One rare character needs 2
+units in MATLAB, and it therefore arrives here as 2 items. The `String` method joins such a
+pair correctly.
 """
 function matread(f::MatFile, key, ::Type{Array{Char, N}}) where {N}
     name = keyname(key)
@@ -420,11 +448,13 @@ end
 """
     matread(f, name, String) -> String
 
-Read a MATLAB char row vector. MATLAB stores char data as UTF-16 code units, or as bytes for
-a purely 7-bit string, and both are converted here.
+Read one row of MATLAB text as a `String`.
 
-Only a `1xN` char array is a string; a char matrix is several rows and has no single string
-representation, so it is refused rather than flattened.
+MATLAB keeps text as 16-bit units, or as bytes for plain text. This function handles both, and
+joins any pair of units that stands for one character.
+
+Text with more than one row has no single string form. This function stops with an error in
+that case. It does not join the rows. Use the `Array{Char,N}` method instead.
 """
 function matread(f::MatFile, key, ::Type{String})
     name = keyname(key)

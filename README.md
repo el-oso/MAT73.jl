@@ -4,14 +4,18 @@
 [![CI](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml/badge.svg)](https://github.com/el-oso/MAT73.jl/actions/workflows/CI.yml)
 [![Coverage](https://coveralls.io/repos/github/el-oso/MAT73.jl/badge.svg?branch=master)](https://coveralls.io/github/el-oso/MAT73.jl?branch=master)
 
-Read MATLAB v7.3 (`-v7.3`) `.mat` files in pure Julia, with no HDF5 C library, and from a
-binary built with `juliac --trim=safe`.
+**This package reads and writes MATLAB `.mat` files of version 7.3. It uses only Julia code.
+It does not use the HDF5 C library.**
+
+MATLAB writes version 7.3 files when you use `save -v7.3`.
+
+## Example
 
 ```julia
 using MAT73
 
 f = matopen("results.mat")
-keys(f)                                # top-level variable names
+keys(f)                                # the names of the variables
 matclass(f, "A")                       # MAT_DOUBLE
 matsize(f, "A")                        # [128, 128]
 
@@ -19,61 +23,92 @@ A     = matread(f, "A", Matrix{Float64})
 flags = matread(f, "flags", Matrix{Bool})
 z     = matread(f, "z", Matrix{ComplexF64})
 label = matread(f, "label", String)
+
+matwrite("out.mat", "A" => A, "flags" => flags, "label" => label)
 ```
 
-## Why the type is an argument
+## Why you give the type
 
-A variable's type is a property of the file, but `--trim=safe` rejects any call whose return
-type is not known statically. So the caller states the type it expects and gets a concrete
-return; the on-disk datatype class, width and signedness are all checked against it, and a
-mismatch is an error rather than a reinterpretation of the bytes.
+**You tell `matread` which type you expect. It does not guess.**
 
-`matclass` exists so a file can be surveyed first. It returns `MAT_UNSUPPORTED` instead of
-throwing, so a caller can skip what it cannot handle.
+Think of a parcel with no label. You must say what is inside before you open it.
 
-MATLAB stores dimensions reversed and elements column-major, so filling a Julia array in file
-order under the reversed dimensions reproduces the MATLAB array. Nothing is transposed.
+The reason is a compiler tool named `juliac`. It builds a small program from Julia code. It
+uses the option `--trim=safe`. This option rejects any function that can return more than one
+type. A file can hold many types. Therefore the caller states the type.
 
-## What is read
+The package then does 3 checks against the file:
 
-| | |
+1. the kind of number, such as a whole number or a decimal number
+2. the width in bytes
+3. the sign, for whole numbers
+
+If a check fails, the package stops with an error. It does not read the bytes as the wrong
+type.
+
+Use `matclass` first if you do not know what is in the file. It gives a name for the type. It
+gives `MAT_UNSUPPORTED` for a type this package does not read. It does not stop with an error.
+
+## Order of the dimensions
+
+**You get the same array that MATLAB shows. Nothing is turned around.**
+
+MATLAB and Julia both put the first dimension down the columns. The file keeps the dimensions
+in the opposite order. The two effects cancel.
+
+## What this package reads
+
+| MATLAB type | Julia type |
 |---|---|
-| `double`, `single`, `int8`–`int64`, `uint8`–`uint64` | `Array{T,N}` |
+| `double`, `single` | `Array{Float64,N}`, `Array{Float32,N}` |
+| `int8` to `int64`, `uint8` to `uint64` | `Array{T,N}` |
 | `logical` | `Array{Bool,N}` |
-| complex numeric | `Array{Complex{T},N}` |
-| `char`, `1xN` | `String` |
-| `char`, any shape | `Array{Char,N}`, UTF-16 code units |
-| empty arrays | shape preserved, e.g. `0x3` |
-| `cell` | `Array{MatRef,N}`, one reference per element |
-| `struct` | a group; fields by path, `matkeys` lists them |
-| struct arrays | fields are `Array{MatRef,N}` |
+| complex numbers | `Array{Complex{T},N}` |
+| `char`, one row | `String` |
+| `char`, any shape | `Array{Char,N}` |
+| empty arrays | the shape stays, such as `0x3` |
+| `cell` | `Array{MatRef,N}`, one mark for each item |
+| `struct` | fields by path; `matkeys` gives the names |
+| struct arrays | each field is an `Array{MatRef,N}` |
+| objects of a class you wrote | properties by path |
 
-A cell array's elements have no common type, and neither do a struct array's, so following
-them eagerly would mean returning `Any`. They come back as references instead, read one at a
-time with the type you expect:
+## Boxes with mixed contents
+
+**A cell array gives you marks, not values. You follow one mark at a time.**
+
+Think of a cloakroom. You get a numbered ticket, not the coat. You hand back one ticket and
+get one coat.
+
+The items in a cell array can have different types. A function that returns all of them at
+once would have no single type. So you get one mark for each item. The mark type is `MatRef`.
 
 ```julia
 cells = matread(f, "c", Matrix{MatRef})
-matclass(f, cells[1])                     # survey before committing to a type
-matread(f, cells[1], Matrix{Float64})     # follow it
+matclass(f, cells[1])                     # look before you choose a type
+matread(f, cells[1], Matrix{Float64})     # follow the mark
 
-matkeys(f, "s")                           # struct field names
-matread(f, "s/a", Matrix{Float64})        # a field by path, nesting allowed
+matkeys(f, "s")                           # the field names of a struct
+matread(f, "s/a", Matrix{Float64})        # one field, by path
 ```
 
-A `classdef` object holds only indices into MATLAB's own object tables in `#subsystem#`. That
-indirection is resolved, so an object reads like a struct too:
+A cell inside a cell gives you more marks. The steps stay the same.
+
+## Objects of a class
+
+**An object holds no data. It holds numbers that point into a table.**
+
+Think of a library catalogue card. The card is not the book. The card tells you the shelf.
+
+MATLAB keeps the table in a hidden part of the file. This package follows the numbers for you.
+An object then behaves like a struct.
 
 ```julia
 matobjectclass(f, "obj")                  # "TestClasses.BasicClass"
-matkeys(f, "obj")                         # property names, addprop ones included
-matread(f, "obj/a", Matrix{Float64})      # a property by path
+matkeys(f, "obj")                         # the property names
+matread(f, "obj/a", Matrix{Float64})      # one property, by path
 ```
 
-Storage: superblock versions 0 and 2, version-1 and version-2 object headers with
-continuation blocks, old-style groups and compact groups made of link messages, and compact,
-contiguous or chunked layout with the deflate and shuffle filters. MATLAB writes the first of
-each pair; libhdf5, and so HDF5.jl, MAT.jl and this package's writer, write the second.
+Properties added later with `addprop` are in the list too.
 
 ## Writing
 
@@ -81,70 +116,64 @@ each pair; libhdf5, and so HDF5.jl, MAT.jl and this package's writer, write the 
 matwrite("out.mat", "A" => A, "flags" => flags, "label" => "hello")
 ```
 
-Files come out in the shape libhdf5 produces and MATLAB reads: a 512-byte user block holding
-the MATLAB banner, superblock version 2, version-2 object headers, a root group of link
-messages, and contiguous uncompressed datasets with the `MATLAB_*` attributes set. Numeric
-arrays, `Bool` and strings are written; everything under "not read yet" is also not written.
+The package writes files in the shape that MATLAB reads. It writes numbers, `Bool` values and
+text. It does not compress. Files are therefore larger than the files MATLAB writes.
 
-Addresses are assigned before anything is serialised, because a dataset's header records where
-its data lives. The version-2 structures carry Jenkins lookup3 checksums, which libhdf5
-verifies, so a wrong one is rejected rather than tolerated.
+## What this package does not do
 
-## What is not read yet
+Two limits are quiet. The package gives an answer, but not the answer you asked for. These
+come first, because a quiet limit is easy to miss.
 
-Two limitations are silent, so they come first. Each answers a slightly different question
-than the one you asked, rather than raising.
+- **The order of struct fields.** `matkeys` gives the names in file order. MATLAB may use a
+  different order. The names are correct. The values are correct. Only the order can differ.
+- **Arrays of objects.** One variable can point to many objects. This package uses the first
+  one. `matobjectclass`, `matkeys` and a property path all describe that first object.
 
-- **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
-  not necessarily MATLAB's. The names and values are right, the order may not be. MATLAB's
-  order lives in the `MATLAB_fields` attribute, a variable-length string array that needs the
-  global heap.
-- **Object arrays.** An object variable may name several instances; only the first is
-  followed, so `matkeys` and a property path describe that one.
+The other limits stop with an error, or report `MAT_UNSUPPORTED`.
 
-The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
+- **Sparse arrays.**
+- **Objects of the MATLAB types** `table`, `datetime`, `string` and function handles. The
+  package reads their class and their properties. It cannot build the value that MATLAB shows.
+  That step needs a rule for each of those types.
+- **Properties kept in the table.** Most properties point to a value. Some small ones sit in
+  the table itself. The package cannot read those.
+- **Text above code point 65535.** MATLAB keeps text as 16-bit units. `Array{Char,N}` gives
+  you those units. One rare character then arrives as 2 units. The `String` method joins them
+  correctly.
+- **Compression when writing.**
 
-- **Sparse arrays.** Deliberately a limitation rather than an extension for now: there is no
-  sparse code to gate. When it is written, `SparseArrays` should be a weak dependency —
-  it pulls `SuiteSparse_jll`, an artifact JLL whose `__init__` aborts a trimmed binary before
-  `main` when the depot is unreachable, so it must stay off the default path.
-- **Built-in MATLAB objects** — `table`, `datetime`, `string` arrays and function handles.
-  Their class and properties read like any object's, but turning those properties back into
-  the value MATLAB shows needs per-class knowledge that is not here.
-- **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
-  units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
-  its two surrogates. The `String` method decodes properly; MAT.jl decodes char matrices to
-  one `String` per row, which this package does not.
-- **Properties stored inline.** A property whose value is an enumeration or a small attribute
-  lives in the tables rather than in the cell array; reading one raises, since only
-  cell-valued properties have somewhere to point at.
-- **Compression on write.** Written datasets are contiguous and uncompressed.
+`keys(f)` also lists 2 names that MATLAB uses for itself: `#refs#` and `#subsystem#`. Skip
+them if you only want your own variables.
 
-`keys(f)` lists MATLAB's own entries — `#refs#` and `#subsystem#` — alongside your variables.
+The package does not read some file layouts: fractal heap groups, superblock versions 1 and 3,
+and filters other than deflate and shuffle. MATLAB does not write these. Other tools can.
 
-Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
-deflate and shuffle. MATLAB writes none of these, but `h5repack` and other HDF5 writers do.
+## Tests
 
-## Testing
+**Every value is compared against a second, independent reader.**
 
-Values are compared against [MAT.jl](https://github.com/JuliaIO/MAT.jl), which reads through
-libhdf5 and is therefore an oracle independent of this implementation, over fixtures MATLAB
-itself wrote. A test item runs TrimCheck over every entry point, since `--trim=safe` support
-is a requirement rather than a nice-to-have.
+The tests use MAT.jl. That package reads through the HDF5 C library. It shares no code with
+this one. The test files come from MATLAB itself.
 
-TrimCheck runs the same compiler pass a real build does — `typeinf_ext_toplevel` under
-`TRIM_SAFE`, with the same `juliac-trim-base.jl` patches applied — so it reports the same
-verifier errors, finalizers included. What it does not do is **link or run**, and it roots
-only the one signature you give it rather than `@main` plus every loaded package's `__init__`.
-Both of those have produced real failures in code that verified clean: an artifact-backed JLL
-whose `__init__` aborts before `main`, and a `ccall` whose library operand is module-qualified,
-which verifies and then throws at run time.
+Files that this package writes are read back through the same C library. That library checks
+the internal totals in the file. A bad file fails there. A file cannot pass by being wrong in
+the same way twice.
 
-So the build is a separate gate, not a stricter analyser. CI runs it, and so can you:
+## The small-program check
+
+**A test proves that this package works inside a small compiled program.**
+
+Two checks run, and they cover different things.
+
+1. `trim/trimcheck.jl` runs the compiler check on every entry point. It finds the same
+   problems the real build finds.
+2. `juliac/build.jl` builds a real program and runs it. This step also links the program and
+   starts it. The first check does neither.
+
+Run them yourself:
 
 ```
 julia --project=. juliac/build.jl
 ```
 
-That builds `juliac/entry.jl` with `--trim=safe` and fails unless the resulting binary prints
-the same thing as the ordinary Julia path.
+The build fails unless the program prints the same answer as normal Julia code.
