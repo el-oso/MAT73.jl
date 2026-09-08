@@ -13,6 +13,7 @@ those attributes say what they mean.
 | `logical` | `Array{Bool,N}` |
 | complex numeric | `Array{Complex{T},N}` |
 | `char`, `1xN` | `String` |
+| `char`, any shape | `Array{Char,N}`, UTF-16 code units |
 | empty arrays | shape preserved, so a `0x3` stays `0x3` |
 | `cell` | `Array{MatRef,N}`, one reference per element |
 | `struct` | a group; fields by path, `matkeys` lists them |
@@ -89,8 +90,10 @@ The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
   when the depot is unreachable, so it must stay off the default path.
 - **MATLAB objects** — `classdef` instances, `table`, `datetime`, `string` arrays and function
   handles. These live in `#subsystem#` in MATLAB's own MCOS encoding.
-- **Char matrices.** Only a `1xN` char array has a single string form; a char matrix is several
-  rows and is refused rather than flattened.
+- **Characters outside the basic multilingual plane.** MATLAB stores char data as UTF-16 code
+  units, and `Array{Char,N}` returns them one for one, so an astral character comes back as
+  its two surrogates. The `String` method decodes properly. MAT.jl instead decodes a char
+  matrix to one `String` per row; this package returns what MATLAB stores.
 
 Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
 deflate and shuffle. MATLAB writes none of these, though `h5repack` and other HDF5 writers do.

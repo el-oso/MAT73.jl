@@ -47,6 +47,33 @@ end
     end
     # A char matrix is several rows, so it has no single string form.
     @test_throws "not a 1xN char array" matread(f, "e", String)
+end
+
+@testitem "char matrices read elementwise" setup = [Fixtures] begin
+    # MAT.jl decodes a char matrix to one String per row, combining surrogate pairs. This
+    # package returns the UTF-16 code units MATLAB actually stores, so the oracle's rows are
+    # re-split into code units to compare the two.
+    function fromrows(rows::Vector{String})
+        units = [transcode(UInt16, r) for r in rows]
+        out = Matrix{Char}(undef, length(units), maximum(length, units))
+        for i in eachindex(units), j in eachindex(units[i])
+            out[i, j] = Char(units[i][j])
+        end
+        return out
+    end
+
+    f = matopen(fixture("char_unicode.mat"))
+    for name in ("e", "g")
+        got = matread(f, name, Matrix{Char})
+        @test got == fromrows(oracle("char_unicode.mat", name))
+    end
+
+    # `f` is a 3x8x2 char array: rank carries through unchanged.
+    volume = matread(f, "f", Array{Char, 3})
+    @test size(volume) == (3, 8, 2)
+    @test volume[1, 1, 1] == fromrows(vec(oracle("char_unicode.mat", "f")))[1, 1]
+
+    @test_throws "not a MATLAB char array" matread(matopen(fixture("simple.mat")), "double", Matrix{Char})
     @test_throws "not a MATLAB char array" matread(matopen(fixture("simple.mat")), "double", String)
 end
 

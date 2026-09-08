@@ -255,7 +255,15 @@ function matread(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
 
     oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
     checkdatatype(oi, T, name)
+    return readvalues(f, oi, name, Array{T, N})
+end
 
+"""
+Read the elements of a dataset whose header has already been checked. Split out so that a
+class stored as one type and returned as another — `char`, held as code units — can reuse the
+layout handling without going through the datatype checks a second time.
+"""
+function readvalues(f::MatFile, oi::ObjInfo, name::String, ::Type{Array{T, N}}) where {T, N}
     out = Array{T, N}(undef, ntuple(k -> matdim(oi.dims, k, oi.nd), Val(N)))
 
     if oi.layout == LAYOUT_CHUNKED
@@ -276,6 +284,32 @@ function matread(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
         out[i] = readelem(T, b, off + (i - 1) * sz)
     end
     return out
+end
+
+"""
+    matread(f, name, Array{Char,N}) -> Array{Char,N}
+
+Read a MATLAB char array of any shape. A char matrix is several rows of text with no single
+string form, so it comes back elementwise; use the `String` method for a `1xN` row vector.
+
+MATLAB holds char data as UTF-16 code units, or as bytes for purely 7-bit text. Either way
+one code unit becomes one `Char`, so text outside the basic multilingual plane — which MATLAB
+stores as a surrogate pair — comes back as its two surrogates rather than one character.
+"""
+function matread(f::MatFile, key, ::Type{Array{Char, N}}) where {N}
+    name = keyname(key)
+    oi = objinfo(f.h5, address(f, key))
+    oi.int_decode == 2 || error("variable \"", name, "\" is not a MATLAB char array")
+    oi.mempty && return emptyarray(Array{Char, N}, matsize(f.h5, oi), name)
+    oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
+
+    # The code units are read as the integer they are stored as, then widened one for one.
+    if oi.dt_size == 1
+        return map(Char, readvalues(f, oi, name, Array{UInt8, N}))
+    elseif oi.dt_size == 2
+        return map(Char, readvalues(f, oi, name, Array{UInt16, N}))
+    end
+    return error("variable \"", name, "\" stores ", oi.dt_size, "-byte characters")
 end
 
 """
