@@ -22,8 +22,8 @@ matwrite("out.mat", "A" => A, "flags" => flags, "label" => label)
 ## Scope
 
 This package handles the HDF5-based format only. MATLAB's earlier formats — v4 through v7 —
-are a different container entirely; [MAT.jl](https://github.com/JuliaIO/MAT.jl) reads those in
-pure Julia already, and this package does not duplicate that.
+are a different container entirely; [MAT.jl](https://github.com/JuliaIO/MAT.jl) already covers
+them in the Julia ecosystem, and this package does not duplicate that.
 
 Within v7.3 it covers numeric arrays, logical, char, complex and empty arrays, over every
 storage layout MATLAB emits. [The format](format.md) lists exactly what is and is not handled.
