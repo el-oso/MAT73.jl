@@ -103,9 +103,9 @@ this package all write the right column. MATLAB reads both.
 
 The bytes of an array sit in one of 3 layouts:
 
-1. **compact**, inside the header, for very small arrays
-2. **contiguous**, in one block
-3. **chunked**, in blocks, and often compressed
+- **compact**, inside the header, for very small arrays
+- **contiguous**, in one block
+- **chunked**, in blocks, and often compressed
 
 **Most real arrays use the chunked layout.** MATLAB compresses anything above a few hundred
 bytes. Only the smallest variables are compact. This package reads chunked data with the
@@ -115,12 +115,12 @@ deflate and shuffle filters.
 
 `matwrite` writes the same shape as the HDF5 C library:
 
-1. a 512-byte block in front, holding the MATLAB label
-2. superblock version 2
-3. version 2 object headers
-4. a root group made of link messages
-5. arrays in one block each, with no compression
-6. the `MATLAB_` notes beside each array
+- a 512-byte block in front, holding the MATLAB label
+- superblock version 2
+- version 2 object headers
+- a root group made of link messages
+- arrays in one block each, with no compression
+- the `MATLAB_` notes beside each array
 
 Version 2 parts each carry a running total of their own bytes. The HDF5 C library checks these
 totals. A wrong total is rejected. It is not accepted quietly.

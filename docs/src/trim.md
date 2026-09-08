@@ -46,12 +46,12 @@ and compares the answer against normal Julia code.
 
 **Three parts of the interface look the way they do because of this tool.**
 
-1. **`matread` takes the type.** A function may not return more than one type. The type of a
-   variable comes from the file. So the caller states it. Use `@matload` to list several
-   variables at once without repeating the call; it writes the same typed reads for you.
-2. **`matsize` returns a `Vector{Int}`.** The number of dimensions comes from the file. A
-   tuple would then have no fixed length.
-3. **A cell array returns marks.** The items have mixed types. One mark type covers them all.
+- **`matread` takes the type.** A function may not return more than one type. The type of a
+  variable comes from the file. So the caller states it. Use `@matload` to list several
+  variables at once without repeating the call; it writes the same typed reads for you.
+- **`matsize` returns a `Vector{Int}`.** The number of dimensions comes from the file. A
+  tuple would then have no fixed length.
+- **A cell array returns marks.** The items have mixed types. One mark type covers them all.
 
 Two rules inside the code follow from the same tool. They are worth knowing if you read the
 source.
@@ -83,8 +83,8 @@ source.
 
 Both gaps have caused real failures in code that passed the first check:
 
-1. a library that looks up files on disk when it starts, and stops the program before it runs
-2. a call into a C library, written in a form that passes the check and then fails at run time
+- a library that looks up files on disk when it starts, and stops the program before it runs
+- a call into a C library, written in a form that passes the check and then fails at run time
 
 Run both:
 

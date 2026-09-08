@@ -61,9 +61,9 @@ way costs nothing to a program that does not use it.
 
 When you give the type, the package does 3 checks against the file:
 
-1. the kind of number, such as a whole number or a decimal number
-2. the width in bytes
-3. the sign, for whole numbers
+- the kind of number, such as a whole number or a decimal number
+- the width in bytes
+- the sign, for whole numbers
 
 If a check fails, the package stops with an error. It does not read the bytes as the wrong
 type. This matters. A check on the width alone can read past the end of a smaller array. You
@@ -169,8 +169,8 @@ reorder it.**
 
 Two facts cancel each other:
 
-1. MATLAB and Julia both put the first dimension down the columns.
-2. The file keeps the list of dimensions in the opposite order.
+- MATLAB and Julia both put the first dimension down the columns.
+- The file keeps the list of dimensions in the opposite order.
 
 So the package fills a Julia array in file order, under the reversed dimensions. The result
 matches MATLAB.
@@ -181,8 +181,8 @@ matches MATLAB.
 
 Pick MAT73.jl when you need:
 
-1. no C library among your dependencies, or
-2. to read a `.mat` file inside a small compiled program.
+- no C library among your dependencies, or
+- to read a `.mat` file inside a small compiled program.
 
 For everything else, MAT.jl is the better tool.
 
