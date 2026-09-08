@@ -36,6 +36,22 @@ end
     @test_throws "no property named" matread(f, "obj_with_vals/nope", Matrix{Float64})
 end
 
+@testitem "properties added with addprop are listed and read" setup = [Objects] begin
+    # A dynamic property is itself an object, of class meta.DynamicProperty, holding the name
+    # it was given and its value. It is listed after the properties the class declares.
+    path = joinpath(@__DIR__, "fixtures", "v7.3", "dynamicprops.mat")
+    f = matopen(path)
+    @test matobjectclass(f, "obj") == "TestClasses.BasicDynamic"
+    @test matkeys(f, "obj") == ["Name", "DynamicData"]
+    @test matread(f, "obj/Name", String) == "Example"
+    @test matread(f, "obj/DynamicData", Matrix{Float64}) == fill(42.0, 1, 1)
+end
+
+@testitem "an object without dynamic properties lists only its class's" setup = [Objects] begin
+    f = matopen(OBJFILE)
+    @test sort(matkeys(f, "obj_with_vals")) == ["a", "b", "c"]
+end
+
 @testitem "matclass still reports objects as unsupported" setup = [Objects] begin
     # matclass answers the plain-array question, and an object is not a plain array; its class
     # name comes from matobjectclass instead.

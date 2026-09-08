@@ -66,7 +66,7 @@ indirection is resolved, so an object reads like a struct too:
 
 ```julia
 matobjectclass(f, "obj")                  # "TestClasses.BasicClass"
-matkeys(f, "obj")                         # property names
+matkeys(f, "obj")                         # property names, addprop ones included
 matread(f, "obj/a", Matrix{Float64})      # a property by path
 ```
 
@@ -92,7 +92,7 @@ verifies, so a wrong one is rejected rather than tolerated.
 
 ## What is not read yet
 
-Three limitations are silent, so they come first. Each answers a slightly different question
+Two limitations are silent, so they come first. Each answers a slightly different question
 than the one you asked, rather than raising.
 
 - **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
@@ -101,8 +101,6 @@ than the one you asked, rather than raising.
   global heap.
 - **Object arrays.** An object variable may name several instances; only the first is
   followed, so `matkeys` and a property path describe that one.
-- **Dynamic properties**, those added with `addprop`, live in a region of the subsystem tables
-  this parser reads past, so they are missing from `matkeys` rather than reported.
 
 The rest throw an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 

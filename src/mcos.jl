@@ -36,8 +36,10 @@ struct McosTables
     object_class::Vector{Int}      # per object id
     object_normal::Vector{Int}
     object_save::Vector{Int}
+    object_dependency::Vector{Int}
     normal_props::Vector{Vector{McosProp}}   # per normal-object id
     save_props::Vector{Vector{McosProp}}     # per saveobj id
+    dynamic::Vector{Vector{Int}}   # per dependency id, the object ids of its dynamic properties
 end
 
 "The subsystem, parsed once per file: its cell array and the tables from the first cell."
@@ -85,6 +87,28 @@ function mcos_propregion(blob::Vector{UInt8}, first::Int, last::Int)
     return blocks
 end
 
+"""
+Read the region listing each object's dynamic properties: a count followed by that many
+object ids, padded so the next block starts on an eight-byte boundary. Blocks are ordered by
+dependency id, and the first is empty.
+"""
+function mcos_dynregion(blob::Vector{UInt8}, first::Int, last::Int)
+    blocks = Vector{Int}[]
+    p = first
+    while p + 4 <= last
+        n = mcosword(blob, p ÷ 4)
+        ids = Int[]
+        q = p + 4
+        for _ in 1:n
+            push!(ids, mcosword(blob, q ÷ 4))
+            q += 4
+        end
+        push!(blocks, ids)
+        p = q + mod(-q, 8)
+    end
+    return blocks
+end
+
 function mcos_tables(blob::Vector{UInt8})
     length(blob) >= 40 || error("the subsystem metadata block is too short to hold a header")
     version = mcosword(blob, 0)
@@ -110,18 +134,22 @@ function mcos_tables(blob::Vector{UInt8})
     object_class = Int[]
     object_save = Int[]
     object_normal = Int[]
+    object_dependency = Int[]
     for b in 0:((offsets[4] - offsets[3]) ÷ 24 - 1)
         q = offsets[3] ÷ 4 + 6b
         push!(object_class, mcosword(blob, q))
         push!(object_save, mcosword(blob, q + 3))
         push!(object_normal, mcosword(blob, q + 4))
+        push!(object_dependency, mcosword(blob, q + 5))
     end
 
     save_props = mcos_propregion(blob, offsets[2], offsets[3])
     normal_props = mcos_propregion(blob, offsets[4], offsets[5])
+    dynamic = mcos_dynregion(blob, offsets[5], offsets[6])
     return McosTables(
         names, class_namespace, class_name,
-        object_class, object_normal, object_save, normal_props, save_props,
+        object_class, object_normal, object_save, object_dependency,
+        normal_props, save_props, dynamic,
     )
 end
 
@@ -140,7 +168,11 @@ function readmcos(f)
             return McosState(cells, mcos_tables(blob))
         end
     end
-    return McosState(MatRef[], McosTables(String[], Int[], Int[], Int[], Int[], Int[], Vector{McosProp}[], Vector{McosProp}[]))
+    empty = McosTables(
+        String[], Int[], Int[], Int[], Int[], Int[], Int[],
+        Vector{McosProp}[], Vector{McosProp}[], Vector{Int}[],
+    )
+    return McosState(MatRef[], empty)
 end
 
 "The subsystem, parsed on first use."
@@ -182,6 +214,16 @@ function mcos_objectids(v::Vector{UInt32})
     last = first + n - 1
     last < length(v) || return Int[]     # the class id follows, so the ids stop before the end
     return [Int(v[i]) for i in first:last]
+end
+
+"""
+The object ids of an object's dynamic properties, those added with `addprop`. Each is itself
+an object, of class `meta.DynamicProperty`, holding the property's name and value.
+"""
+function mcos_dynamicprops(t::McosTables, objid::Int)
+    dep = atid(t.object_dependency, objid)
+    dep + 1 <= length(t.dynamic) && return t.dynamic[dep + 1]
+    return Int[]
 end
 
 "The property map of one object, following its saveobj id when it has one."

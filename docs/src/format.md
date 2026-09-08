@@ -54,6 +54,10 @@ matread(f, "obj/a", Matrix{Float64}) # a property by path
 `matclass` still reports `MAT_UNSUPPORTED` for an object, because it answers the
 plain-array question and an object is not a plain array; `matobjectclass` is the one to ask.
 
+Properties added at run time with `addprop` are listed and read alongside the ones the class
+declares. Each is itself an object, of class `meta.DynamicProperty`, holding the name it was
+given and its value; that indirection is followed here.
+
 Only properties whose value is stored in the subsystem's cell array can be read. A property
 held inline — an enumeration or a small attribute — raises rather than being guessed at.
 
@@ -97,7 +101,7 @@ files are larger than MATLAB's own.
 
 ## What is not handled
 
-Three limitations are silent, so they come first. Each gives a right answer to a slightly
+Two limitations are silent, so they come first. Each gives a right answer to a slightly
 different question than the one you asked.
 
 - **Struct field order.** `matkeys` lists fields in the order the group stores them, which is
@@ -105,7 +109,6 @@ different question than the one you asked.
   order lives in the `MATLAB_fields` attribute, a variable-length string array that needs the
   global heap.
 - **Object arrays** name several instances; only the first is described. See below.
-- **Dynamic properties** are absent from `matkeys` rather than reported. See below.
 
 The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
 
@@ -118,9 +121,6 @@ The rest raise an error naming what is unsupported, or report `MAT_UNSUPPORTED`.
   does with its properties. `classdef` instances of your own classes have no such layer.
 - **Object arrays.** An object variable may name several instances; only the first is
   followed, so `matkeys` and a property path describe that one.
-- **Dynamic properties**, those added with `addprop`. They are held in a region of the
-  subsystem tables this parser reads past, so they are missing from `matkeys` rather than
-  reported.
 - **Properties stored inline.** A property whose value is an enumeration or a small attribute
   is held in the tables rather than in the cell array, and reading one raises. Only
   cell-valued properties have somewhere to point at.

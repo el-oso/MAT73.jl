@@ -138,7 +138,35 @@ function matobjectclass(f::MatFile, key)
     return isempty(name) ? oi.mclass : name
 end
 
-"Property names of a MATLAB object, in the order its property map lists them."
+"""
+A dynamic property is itself an object of class `meta.DynamicProperty`: its `DynamicName_`
+holds the name the property was given, and its `DynamicValue_` the value. This pairs each
+name with the address its value lives at.
+"""
+function dynamicproperties(f::MatFile, objid::Int)
+    state = mcos(f)
+    t = state.tables
+    out = Tuple{String, Int}[]
+    for propid in mcos_dynamicprops(t, objid)
+        name = ""
+        value = -1
+        for (nameidx, kind, v) in mcos_props(t, propid)
+            kind == MCOS_CELL || continue
+            (nameidx >= 1 && nameidx <= length(t.names)) || continue
+            i = v + 3
+            (i >= 1 && i <= length(state.cells)) || continue
+            if t.names[nameidx] == "DynamicName_"
+                name = matread(f, state.cells[i], String)
+            elseif t.names[nameidx] == "DynamicValue_"
+                value = state.cells[i].addr
+            end
+        end
+        (!isempty(name) && value >= 0) && push!(out, (name, value))
+    end
+    return out
+end
+
+"Property names of a MATLAB object: those declared by its class, then any added with `addprop`."
 function objectkeys(f::MatFile, oi::ObjInfo)
     ids = objectids(f, oi)
     isempty(ids) && return String[]
@@ -146,6 +174,9 @@ function objectkeys(f::MatFile, oi::ObjInfo)
     out = String[]
     for (nameidx, _, _) in mcos_props(t, ids[1])
         (nameidx >= 1 && nameidx <= length(t.names)) && push!(out, t.names[nameidx])
+    end
+    for (name, _) in dynamicproperties(f, ids[1])
+        push!(out, name)
     end
     return out
 end
@@ -169,6 +200,9 @@ function objectproperty(f::MatFile, oi::ObjInfo, prop::String)
         i = value + 3
         (i >= 1 && i <= length(state.cells)) || error("property \"", prop, "\" points outside the subsystem")
         return state.cells[i].addr
+    end
+    for (name, value) in dynamicproperties(f, ids[1])
+        name == prop && return value
     end
     return error("no property named \"", prop, "\" on this MATLAB object")
 end
