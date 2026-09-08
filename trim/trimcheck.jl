@@ -16,7 +16,21 @@ using TrimCheck
     @validate(
         init = begin
             using MAT73
+            # The macro expands to ordinary typed reads, so a function that uses it must
+            # verify like any other. This is the root that proves it.
+            #
+            # `@eval` because the whole init block is expanded before `using` runs, so the
+            # macro is not known yet at that point.
+            @eval function loadfields(f::MAT73.MatFile)
+                return MAT73.@matload f begin
+                    a::Matrix{Float64}
+                    n::Int64
+                    label::String
+                    gain = "cfg/gain"::Float64
+                end
+            end
         end,
+        Main.loadfields(MAT73.MatFile),
         MAT73.matopen(String),
         MAT73.matsize(MAT73.MatFile, String),
         MAT73.matclass(MAT73.MatFile, String),

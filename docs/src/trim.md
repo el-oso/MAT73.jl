@@ -47,7 +47,8 @@ and compares the answer against normal Julia code.
 **Three parts of the interface look the way they do because of this tool.**
 
 1. **`matread` takes the type.** A function may not return more than one type. The type of a
-   variable comes from the file. So the caller states it.
+   variable comes from the file. So the caller states it. Use `@matload` to list several
+   variables at once without repeating the call; it writes the same typed reads for you.
 2. **`matsize` returns a `Vector{Int}`.** The number of dimensions comes from the file. A
    tuple would then have no fixed length.
 3. **A cell array returns marks.** The items have mixed types. One mark type covers them all.

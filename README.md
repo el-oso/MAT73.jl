@@ -48,6 +48,38 @@ caller states the type instead.
 
 A program that never calls the short way does not carry it. The build removes it.
 
+## Reading several variables at once
+
+**`@matload` gives you the short way and the fixed return type at the same time.**
+
+You list the variables once. The macro writes one normal typed read for each line, with the
+type written out. So it works inside a small compiled program.
+
+```julia
+v = @matload f begin
+    A::Matrix{Float64}          # an array
+    n::Int64                    # a single number
+    label::String               # one row of text
+    gain = "cfg/gain"::Float64  # a field of a struct, under the name you choose
+end
+
+v.A
+v.n
+v.gain
+```
+
+You get a named tuple. Its type is known before the program runs.
+
+A plain number type means a MATLAB scalar, which is a 1x1 array in the file. You get the
+value. If the variable holds more than one value, this stops with an error.
+
+The two line forms:
+
+| you write | it reads |
+|---|---|
+| `name::Type` | the variable called `name` |
+| `name = "a/path"::Type` | that path, under the name `name` |
+
 ## What the check does
 
 When you give the type, the package does 3 checks against the file:

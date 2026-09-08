@@ -73,6 +73,95 @@ Use [`matclass`](@ref) first if you do not know what is in the file. It gives
 `MAT_UNSUPPORTED` for a type this package does not read. It does not stop with an error, so
 you can look through a whole file safely.
 
+## Reading several variables at once
+
+**`@matload` gives you the short way and the fixed return type at the same time.**
+
+### Why it exists
+
+Look at the 2 ways again. Each one costs you something.
+
+- `matread(f, "A")` is short. Its result type is not fixed, so a small compiled program
+  cannot use it.
+- `matread(f, "A", Matrix{Float64})` has a fixed type. You repeat the call for each variable,
+  and the file name and the type sit far apart.
+
+`@matload` removes the repetition and keeps the fixed type. You list the variables once. The
+macro writes one normal typed read for each line. The types stay in the code it writes, so
+nothing is worked out while the program runs.
+
+Think of a shopping list. You write the list once at home. In the shop you collect the items
+one by one. The list did not buy anything; it only saved you from remembering.
+
+### Example 1: a few arrays
+
+```julia
+v = @matload f begin
+    A::Matrix{Float64}
+    B::Array{Float64,3}
+    flags::Matrix{Bool}
+end
+
+v.A
+v.flags
+```
+
+You get a named tuple. Its type is known before the program runs.
+
+### Example 2: single numbers
+
+A MATLAB scalar is a 1x1 array in the file. Ask for a plain number type and you get the
+value, not the array.
+
+```julia
+v = @matload f begin
+    n::Int64            # the value, such as 42
+    gain::Float64
+    count::Matrix{Int64}  # the 1x1 array, if you want it
+end
+```
+
+If the variable holds more than one value, this stops with an error. It does not pick one.
+
+### Example 3: fields of a struct
+
+Use a path. Give the field the name you want in the result.
+
+```julia
+v = @matload f begin
+    gain = "cfg/gain"::Float64
+    mode = "cfg/mode"::String
+end
+
+v.gain
+v.mode
+```
+
+### Example 4: properties of an object
+
+An object works the same way as a struct.
+
+```julia
+v = @matload f begin
+    label = "obj/Name"::String
+    data  = "obj/DynamicData"::Float64
+end
+```
+
+### Example 5: one variable, no block
+
+```julia
+v = @matload f A::Matrix{Float64}
+v.A
+```
+
+### The two line forms
+
+| you write | it reads |
+|---|---|
+| `name::Type` | the variable called `name` |
+| `name = "a/path"::Type` | that path, under the name `name` |
+
 ## This package or MAT.jl for the short way
 
 Both give you a `Dict` from `matread(path)`. MAT.jl builds full values for MATLAB types such

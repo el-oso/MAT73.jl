@@ -9,6 +9,13 @@ matread(::String)
 matread(::MAT73.MatFile, ::Any)
 ```
 
+## Reading several variables at once
+
+```@docs
+@matload
+MAT73.matfield
+```
+
 ## Reading, with the type
 
 ```@docs
