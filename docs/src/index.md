@@ -162,11 +162,6 @@ v.A
 | `name::Type` | the variable called `name` |
 | `name = "a/path"::Type` | that path, under the name `name` |
 
-## This package or MAT.jl for the short way
-
-Both give you a `Dict` from `matread(path)`. MAT.jl builds full values for MATLAB types such
-as `table` and `datetime`. This package does not. See [The format](format.md).
-
 ## Order of the dimensions
 
 **You get the same array that MATLAB shows. Nothing is turned around. Nothing is copied to
@@ -180,17 +175,25 @@ Two facts cancel each other:
 So the package fills a Julia array in file order, under the reversed dimensions. The result
 matches MATLAB.
 
-## This package or MAT.jl
+## Which package to use
 
-**Use MAT.jl unless you need one of 2 things.**
+**Use MAT.jl. Use this package only if you need one of 2 things.**
 
-MAT.jl is the general choice. It reads every MATLAB version. It builds full values for tables,
-dates and other MATLAB types. It reaches version 7.3 through the HDF5 C library.
+Pick MAT73.jl when you need:
 
-Use MAT73.jl when you need:
-
-1. no C library in your list of dependencies, or
+1. no C library among your dependencies, or
 2. to read a `.mat` file inside a small compiled program.
 
-The tests compare this package against MAT.jl on files that MATLAB wrote. The two agree where
-they overlap.
+For everything else, MAT.jl is the better tool.
+
+| | MAT.jl | MAT73.jl |
+|---|---|---|
+| MATLAB versions | 4, 5, 6, 7 and 7.3 | 7.3 only |
+| The HDF5 C library | needed | not used |
+| `matread(path)` gives a `Dict` | yes | yes |
+| `table`, `datetime`, `string` | full values | class and properties only |
+| sparse arrays | yes | no |
+| works in a small compiled program | no | yes |
+
+The two agree where they overlap. The tests here read files that MATLAB wrote, and compare
+every value against MAT.jl.
