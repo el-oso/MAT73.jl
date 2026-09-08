@@ -43,8 +43,25 @@ order under the reversed dimensions reproduces the MATLAB array. Nothing is tran
 | `char`, `1xN` | `String` |
 | empty arrays | shape preserved, e.g. `0x3` |
 
-Storage: superblock version 0, version-1 object headers with continuation blocks, old-style
-groups, and compact, contiguous or chunked layout with the deflate and shuffle filters.
+Storage: superblock versions 0 and 2, version-1 and version-2 object headers with
+continuation blocks, old-style groups and compact groups made of link messages, and compact,
+contiguous or chunked layout with the deflate and shuffle filters. MATLAB writes the first of
+each pair; libhdf5, and so HDF5.jl, MAT.jl and this package's writer, write the second.
+
+## Writing
+
+```julia
+matwrite("out.mat", "A" => A, "flags" => flags, "label" => "hello")
+```
+
+Files come out in the shape libhdf5 produces and MATLAB reads: a 512-byte user block holding
+the MATLAB banner, superblock version 2, version-2 object headers, a root group of link
+messages, and contiguous uncompressed datasets with the `MATLAB_*` attributes set. Numeric
+arrays, `Bool` and strings are written; everything under "not read yet" is also not written.
+
+Addresses are assigned before anything is serialised, because a dataset's header records where
+its data lives. The version-2 structures carry Jenkins lookup3 checksums, which libhdf5
+verifies, so a wrong one is rejected rather than tolerated.
 
 ## What is not read yet
 
@@ -61,11 +78,10 @@ Each of these throws an error naming what is unsupported, or reports `MAT_UNSUPP
   handles. These live in `#subsystem#` in MATLAB's own MCOS encoding.
 - **Char matrices.** Only a `1xN` char array has a single string form; a char matrix is
   several rows and is refused rather than flattened.
-- **Writing.** Nothing is written yet.
+- **Compression on write.** Written datasets are contiguous and uncompressed.
 
-Storage not read: fractal-heap groups, version-2 object headers, superblock versions other
-than 0, and filters other than deflate and shuffle. MATLAB itself writes none of these, but
-`h5repack` and other HDF5 writers do.
+Storage not read: fractal-heap groups, superblock versions 1 and 3, and filters other than
+deflate and shuffle. MATLAB writes none of these, but `h5repack` and other HDF5 writers do.
 
 ## Testing
 

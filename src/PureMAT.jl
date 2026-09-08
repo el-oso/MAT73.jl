@@ -20,10 +20,12 @@ using Mmap
 using ChunkCodecLibZlib: ZlibDecodeOptions
 using ChunkCodecLibZlib.ChunkCodecCore: try_decode!
 
-export matopen, matread, matsize, matclass, MatClass
+export matopen, matread, matsize, matclass, MatClass, matwrite, MatWriter
 
+include("lookup3.jl")
 include("hdf5.jl")
 include("chunked.jl")
 include("read.jl")
+include("write.jl")
 
 end # module PureMAT

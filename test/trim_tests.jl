@@ -22,5 +22,8 @@
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{Bool}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{Matrix{ComplexF64}}),
         PureMAT.matread(PureMAT.MatFile, String, Type{String}),
+        Base.push!(PureMAT.MatWriter, String, Matrix{Float64}),
+        Base.push!(PureMAT.MatWriter, String, Matrix{Bool}),
+        PureMAT.matwrite(String, PureMAT.MatWriter),
     )
 end
