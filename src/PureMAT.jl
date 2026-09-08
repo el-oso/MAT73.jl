@@ -17,10 +17,13 @@ A = matread(f, "A", Matrix{Float64}) # concrete return type, checked against the
 module PureMAT
 
 using Mmap
+using ChunkCodecLibZlib: ZlibDecodeOptions
+using ChunkCodecLibZlib.ChunkCodecCore: try_decode!
 
 export matopen, matread, matsize
 
 include("hdf5.jl")
+include("chunked.jl")
 include("read.jl")
 
 end # module PureMAT

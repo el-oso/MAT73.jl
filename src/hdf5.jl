@@ -30,7 +30,18 @@ const LAYOUT_CHUNKED = 2
 const DT_FIXED = 0
 const DT_FLOAT = 1
 
+# Filter identifiers, as HDF5 registers them.
+const FILTER_DEFLATE = 1
+const FILTER_SHUFFLE = 2
+
+"Most filters a pipeline may hold here. MATLAB writes at most shuffle followed by deflate."
+const MAXFILTERS = 4
+
 # The object-header fields a raw array read needs. A fixed layout keeps inference concrete.
+#
+# The filter pipeline is a fixed-size tuple rather than a vector of filter objects: a
+# container whose length or element type comes from the file cannot be dispatched on
+# statically, which is precisely what `--trim=safe` rejects.
 struct ObjInfo
     stab_btree::Int
     stab_heap::Int
@@ -42,6 +53,14 @@ struct ObjInfo
     dt_class::Int
     dt_size::Int     # bytes per element
     dt_signed::Bool  # meaningful only for DT_FIXED
+    # Chunked storage. `chunk_ndl` counts the dimensions as stored, which is the dataspace
+    # rank plus one: HDF5 appends the element size as a trailing chunk dimension.
+    chunk_btree::Int
+    chunk_ndl::Int
+    chunk_dims::NTuple{MAXRANK + 1, Int}
+    nfilters::Int
+    filter_ids::NTuple{MAXFILTERS, Int}
+    filter_cd1::NTuple{MAXFILTERS, Int}  # first client value; shuffle's is its element size
 end
 
 @inline function readuint(buf::Vector{UInt8}, off::Int, n::Int)::UInt64
@@ -101,6 +120,19 @@ end
     return k <= nd ? Int(readuint(buf, d + 8 + (k - 1) * ls, ls)) : 0
 end
 
+"Set element `i` of a 4-tuple. An explicit ladder keeps the result's type a literal."
+@inline function settuple4(t::NTuple{4, Int}, i::Int, v::Int)
+    i == 1 && return (v, t[2], t[3], t[4])
+    i == 2 && return (t[1], v, t[3], t[4])
+    i == 3 && return (t[1], t[2], v, t[4])
+    return (t[1], t[2], t[3], v)
+end
+
+"Chunk dimension `k`; they are 4 bytes each, unlike dataspace dimensions."
+@inline function cdimat(buf::Vector{UInt8}, q::Int, k::Int, ndl::Int)::Int
+    return k <= ndl ? Int(readuint(buf, q + (k - 1) * 4, 4)) : 0
+end
+
 "MATLAB dimension `k`, recovered from the reversed dimensions HDF5 stores."
 @inline function matdim(dims::NTuple{MAXRANK, Int}, k::Int, nd::Int)::Int
     return k <= nd ? dims[nd - k + 1] : 1
@@ -125,6 +157,12 @@ function objinfo(f::H5File, addr::Int)
     dt_class = -1
     dt_size = 0
     dt_signed = false
+    chunk_btree = -1
+    chunk_ndl = 0
+    chunk_dims = (0, 0, 0, 0, 0, 0, 0, 0, 0)
+    nfilters = 0
+    filter_ids = (0, 0, 0, 0)
+    filter_cd1 = (0, 0, 0, 0)
 
     seen = 0
     bi = 1
@@ -163,6 +201,21 @@ function objinfo(f::H5File, addr::Int)
                     elseif layout == LAYOUT_CONTIGUOUS
                         a = readaddr(buf, d + 2, f.osize)
                         data_off = a < 0 ? -1 : foff(f, a)
+                    elseif layout == LAYOUT_CHUNKED
+                        # Dimensionality, then the B-tree root, then that many 4-byte chunk
+                        # dimensions. The trailing one is the element size, not an extent.
+                        chunk_ndl = Int(buf[d + 3])
+                        chunk_ndl <= MAXRANK + 1 || error("chunk dimensionality above $(MAXRANK + 1) is not supported")
+                        a = readaddr(buf, d + 3, f.osize)
+                        chunk_btree = a
+                        q = d + 3 + f.osize
+                        chunk_dims = (
+                            cdimat(buf, q, 1, chunk_ndl), cdimat(buf, q, 2, chunk_ndl),
+                            cdimat(buf, q, 3, chunk_ndl), cdimat(buf, q, 4, chunk_ndl),
+                            cdimat(buf, q, 5, chunk_ndl), cdimat(buf, q, 6, chunk_ndl),
+                            cdimat(buf, q, 7, chunk_ndl), cdimat(buf, q, 8, chunk_ndl),
+                            cdimat(buf, q, 9, chunk_ndl),
+                        )
                     end
                 elseif v == 1 || v == 2
                     ndl = Int(buf[d + 2])
@@ -181,6 +234,31 @@ function objinfo(f::H5File, addr::Int)
                 else
                     error("unsupported data layout version")
                 end
+            elseif mtype == 11               # filter pipeline
+                fv = Int(buf[d + 1])
+                nfilters = Int(buf[d + 2])
+                nfilters <= MAXFILTERS || error("more than $MAXFILTERS filters is not supported")
+                # Version 1 pads the reserved header and every name and client-data block
+                # out to a multiple of 8 bytes; version 2 pads nothing.
+                q = fv == 1 ? d + 8 : d + 2
+                ids = (0, 0, 0, 0)
+                cd1 = (0, 0, 0, 0)
+                for i in 1:nfilters
+                    fid = Int(readuint(buf, q, 2))
+                    # Version 2 omits the name-length field for the registered filters.
+                    named = fv == 1 || fid >= 256
+                    hdrlen = named ? 8 : 6
+                    namelen = named ? Int(readuint(buf, q + 2, 2)) : 0
+                    nclient = Int(readuint(buf, q + hdrlen - 2, 2))
+                    r = q + hdrlen + (fv == 1 ? 8 * cld(namelen, 8) : namelen)
+                    ids = settuple4(ids, i, fid)
+                    cd1 = settuple4(cd1, i, nclient >= 1 ? Int(readuint(buf, r, 4)) : 0)
+                    r += 4 * nclient
+                    fv == 1 && !iseven(nclient) && (r += 4)   # pad the block to 8 bytes
+                    q = r
+                end
+                filter_ids = ids
+                filter_cd1 = cd1
             elseif mtype == 16               # object header continuation
                 ca = readaddr(buf, d, f.osize)
                 cl = Int(readuint(buf, d + f.osize, f.lsize))
@@ -204,7 +282,11 @@ function objinfo(f::H5File, addr::Int)
         end
         data_size = n * dt_size
     end
-    return ObjInfo(stab_btree, stab_heap, layout, data_off, data_size, nd, dims, dt_class, dt_size, dt_signed)
+    return ObjInfo(
+        stab_btree, stab_heap, layout, data_off, data_size, nd, dims,
+        dt_class, dt_size, dt_signed,
+        chunk_btree, chunk_ndl, chunk_dims, nfilters, filter_ids, filter_cd1,
+    )
 end
 
 function heapname(f::H5File, heap::Int, nameoff::Int)

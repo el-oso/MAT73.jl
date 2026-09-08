@@ -84,22 +84,21 @@ function matread(f::MatFile, name::String, ::Type{Array{T, N}}) where {T, N}
     oi = objinfo(f.h5, lookup(f, name))
     oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
     checkdatatype(oi, T, name)
-    oi.layout == LAYOUT_CHUNKED &&
-        error("variable \"", name, "\" is chunked; only contiguous and compact layouts are read")
+    sz = sizeof(T)
+    dims = ntuple(k -> matdim(oi.dims, k, oi.nd), Val(N))
+    out = Array{T, N}(undef, dims)
+
+    if oi.layout == LAYOUT_CHUNKED
+        oi.chunk_btree >= 0 || error("variable \"", name, "\" is chunked but has no chunk index")
+        return readchunked!(out, f.h5, oi)
+    end
     (oi.layout == LAYOUT_COMPACT || oi.layout == LAYOUT_CONTIGUOUS) ||
         error("variable \"", name, "\" has no readable data layout")
     oi.data_off >= 0 || error("variable \"", name, "\" has no allocated storage")
 
-    n = 1
-    for k in 1:oi.nd
-        n *= oi.dims[k]
-    end
-    sz = sizeof(T)
+    n = length(out)
     oi.data_size >= n * sz || error("stored extent is shorter than the dataspace")
     oi.data_off + n * sz <= length(f.h5.buf) || error("data extends past the end of the file")
-
-    dims = ntuple(k -> matdim(oi.dims, k, oi.nd), Val(N))
-    out = Array{T, N}(undef, dims)
     b = f.h5.buf
     off = oi.data_off
     for i in eachindex(out)

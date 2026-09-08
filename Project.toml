@@ -4,7 +4,10 @@ version = "0.1.0"
 authors = ["el-oso <15278831+el-oso@users.noreply.github.com>"]
 
 [deps]
+ChunkCodecLibZlib = "4c0bbee4-addc-4d73-81a0-b6caacae83c8"
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 
 [compat]
-Mmap = "1.11.0"
+ChunkCodecLibZlib = "1"
+Mmap = "1"
+julia = "1.10"

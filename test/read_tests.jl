@@ -58,9 +58,22 @@ end
     @test_throws "no variable named" matread(f, "nope", Matrix{Float64})
 end
 
-@testitem "unsupported storage is refused, not misread" setup = [Fixtures] begin
-    # partial.mat is chunked and deflated; neither is implemented yet.
+@testitem "chunked and deflated data matches the oracle" setup = [Fixtures] begin
+    # Every MATLAB array beyond a few hundred bytes takes this path.
     f = matopen(fixture("partial.mat"))
-    @test "var1" in keys(f)
-    @test_throws "chunked" matread(f, "var1", Matrix{Float64})
+    for name in ("var1", "var2")
+        ref = oracle("partial.mat", name)
+        got = matread(f, name, Matrix{Float64})
+        @test size(got) == size(ref)
+        @test got == ref
+    end
+end
+
+@testitem "shuffle, partial edge chunks and a multi-node chunk B-tree" setup = [Fixtures] begin
+    # s_h1.mat stores the same data as partial.mat under 7x13 chunks with shuffle+deflate,
+    # so both dimensions have a partial edge chunk and the B-tree has more than one node.
+    ref = oracle("partial.mat", "var1")
+    path = joinpath(@__DIR__, "fixtures", "stress", "s_h1.mat")
+    got = matread(matopen(path), "var1", Matrix{Float64})
+    @test got == ref
 end
