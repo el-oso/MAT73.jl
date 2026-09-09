@@ -29,8 +29,16 @@ using TrimCheck
                     gain = "cfg/gain"::Float64
                 end
             end
+            # The same block given a path rather than an open file.
+            @eval function loadfrompath(path::String)
+                return MAT73.@matload path begin
+                    a::Matrix{Float64}
+                    label::String
+                end
+            end
         end,
         Main.loadfields(MAT73.MatFile),
+        Main.loadfrompath(String),
         MAT73.matopen(String),
         MAT73.matread(String, String, Type{Matrix{Float64}}),
         MAT73.matread(String, String, Type{String}),

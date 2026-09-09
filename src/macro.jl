@@ -5,6 +5,13 @@
 # saves typing. It does not change what the reads do.
 
 """
+The file a [`@matload`](@ref) block reads from. A path is opened. An open file is used as it
+stands, so a caller that already has one does not open it twice.
+"""
+matsource(f::MatFile) = f
+matsource(path::String) = matopen(path)
+
+"""
 Read one field for [`@matload`](@ref). The 3 methods pick the right read from the type you
 asked for, at compile time.
 
@@ -34,13 +41,20 @@ end
 
 Read several variables at once and give back a named tuple.
 
+The first argument is an open file or a path. A path is opened once for the whole block.
+
 ```julia
-v = @matload f begin
+v = @matload "results.mat" begin
     A::Matrix{Float64}
     n::Int64
 end
 v.A
 v.n
+
+f = matopen("results.mat")       # the same, from a file you already have open
+v = @matload f begin
+    A::Matrix{Float64}
+end
 ```
 
 Each line becomes one ordinary read with the type written out. So the result **works inside a
@@ -58,6 +72,9 @@ A plain number type, such as `Int64`, means a MATLAB scalar. You get the single 
 macro matload(file, block)
     lines = block isa Expr && block.head === :block ? block.args : Any[block]
     fields = Any[]
+    # The file expression is evaluated once and held in a local. Repeating it per field would
+    # open a path once for every variable read.
+    src = gensym("matload")
     for line in lines
         line isa LineNumberNode && continue
         name = nothing
@@ -80,8 +97,12 @@ macro matload(file, block)
                 "@matload takes lines of the form `name::Type` or `name = \"a/path\"::Type`, not `$line`"
             )
         )
-        push!(fields, Expr(:(=), name, :($matfield($(esc(file)), $path, $(esc(type))))))
+        push!(fields, Expr(:(=), name, :($matfield($src, $path, $(esc(type))))))
     end
     isempty(fields) && throw(ArgumentError("@matload needs at least one variable"))
-    return Expr(:tuple, fields...)
+    return Expr(
+        :block,
+        Expr(:local, Expr(:(=), src, :($matsource($(esc(file)))))),
+        Expr(:tuple, fields...),
+    )
 end

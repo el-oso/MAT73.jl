@@ -63,3 +63,30 @@ end
     @test Base.return_types(g, (typeof(f),))[1] ===
         NamedTuple{(:double, :int32), Tuple{Float64, Matrix{Int32}}}
 end
+
+@testitem "the macro takes a path as well as an open file" setup = [Fixtures] begin
+    path = fixture("simple.mat")
+    f = matopen(path)
+    fromfile = @matload path begin
+        double::Matrix{Float64}
+        int32::Matrix{Int32}
+    end
+    fromhandle = @matload f begin
+        double::Matrix{Float64}
+        int32::Matrix{Int32}
+    end
+    @test fromfile == fromhandle
+end
+
+@testitem "the macro evaluates its file argument once" setup = [Fixtures] begin
+    # A path given as a call would otherwise be opened once for every variable listed.
+    opens = Ref(0)
+    counted() = (opens[] += 1; matopen(fixture("simple.mat")))
+    v = @matload counted() begin
+        double::Matrix{Float64}
+        int32::Matrix{Int32}
+        logical::Matrix{Bool}
+    end
+    @test opens[] == 1
+    @test v.double == fill(1.0, 1, 1)
+end

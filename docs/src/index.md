@@ -103,7 +103,7 @@ one by one. The list did not buy anything; it only saved you from remembering.
 ### Example 1: a few arrays
 
 ```julia
-v = @matload f begin
+v = @matload "results.mat" begin
     A::Matrix{Float64}
     B::Array{Float64,3}
     flags::Matrix{Bool}
@@ -115,7 +115,21 @@ v.flags
 
 You get a named tuple. Its type is known before the program runs.
 
-### Example 2: single numbers
+### Example 2: a file you already opened
+
+The first item is a path or an open file. A path is opened once for the whole block, however
+many variables you list. Give an open file when you have one already, or when you want to look
+at the file first with `matkeys` or `matclass`.
+
+```julia
+f = matopen("results.mat")
+v = @matload f begin
+    A::Matrix{Float64}
+    flags::Matrix{Bool}
+end
+```
+
+### Example 3: single numbers
 
 A MATLAB scalar is a 1x1 array in the file. Ask for a plain number type and you get the
 value, not the array.
@@ -130,7 +144,7 @@ end
 
 If the variable holds more than one value, this stops with an error. It does not pick one.
 
-### Example 3: fields of a struct
+### Example 4: fields of a struct
 
 Use a path. Give the field the name you want in the result.
 
@@ -144,7 +158,7 @@ v.gain
 v.mode
 ```
 
-### Example 4: properties of an object
+### Example 5: properties of an object
 
 An object works the same way as a struct.
 
@@ -155,7 +169,7 @@ v = @matload f begin
 end
 ```
 
-### Example 5: one variable, no block
+### Example 6: one variable, no block
 
 ```julia
 v = @matload f A::Matrix{Float64}

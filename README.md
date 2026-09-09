@@ -63,7 +63,7 @@ You list the variables once. The macro writes one normal typed read for each lin
 type written out. So it works inside a small compiled program.
 
 ```julia
-v = @matload f begin
+v = @matload "results.mat" begin
     A::Matrix{Float64}          # an array
     n::Int64                    # a single number
     label::String               # one row of text
@@ -76,6 +76,14 @@ v.gain
 ```
 
 You get a named tuple. Its type is known before the program runs.
+
+The first item is a path or an open file. A path is opened once for the whole block. Give an
+open file when you already have one:
+
+```julia
+f = matopen("results.mat")
+v = @matload f A::Matrix{Float64}
+```
 
 A plain number type means a MATLAB scalar, which is a 1x1 array in the file. You get the
 value. If the variable holds more than one value, this stops with an error.
