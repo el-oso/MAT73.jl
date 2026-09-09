@@ -20,6 +20,7 @@ MAT73.matfield
 
 ```@docs
 matopen
+matread(::String, ::String, ::Type)
 matclass
 matsize
 matkeys

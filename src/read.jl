@@ -88,6 +88,23 @@ end
 Base.keys(f::MatFile) = copy(f.names)
 
 """
+    matread(path, name, T) -> T
+
+Open a file and read one variable from it, in one step.
+
+Use this when you want a single variable. Use [`matopen`](@ref) first when you want more than
+one, so that the file is read once instead of once per variable.
+
+```julia
+A = matread("results.mat", "A", Matrix{Float64})
+```
+
+You state the type, so this works inside a small compiled program. The values are copied out
+of the file, so the result stays valid after the file is closed.
+"""
+matread(path::String, key::String, ::Type{T}) where {T} = matread(matopen(path), key, T)
+
+"""
 Address of the object at `path`. A path may descend through groups with `/`, which is how a
 struct's fields are reached: `matread(f, "s/a", Matrix{Float64})`.
 """

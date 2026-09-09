@@ -47,7 +47,11 @@ and the list of what it cannot do.
 |---|---|---|
 | whole file | `matread(path)` | — |
 | one variable | `matread(f, "A")` | `matread(f, "A", Matrix{Float64})` |
+| one variable, no handle | — | `matread(path, "A", Matrix{Float64})` |
 | works in a small program | no | yes |
+
+Give a path instead of an open file when you want one variable and nothing else. Open the
+file first when you want several, so it is read once rather than once for each variable.
 
 The short way works out the type from the file, as MAT.jl does. Use it in ordinary Julia code.
 

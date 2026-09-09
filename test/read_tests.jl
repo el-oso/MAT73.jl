@@ -81,3 +81,19 @@ end
     got = matread(matopen(path), "var1", Matrix{Float64})
     @test got == ref
 end
+
+@testitem "a path, a name and a type read in one step" setup = [Fixtures] begin
+    path = fixture("simple.mat")
+    f = matopen(path)
+    @test matread(path, "double", Matrix{Float64}) == matread(f, "double", Matrix{Float64})
+
+    text = fixture("string.mat")
+    @test matread(text, "simple_string", String) == oracle("string.mat", "simple_string")
+
+    # The values are copied out of the file, so they outlive the handle the call made.
+    A = matread(path, "double", Matrix{Float64})
+    GC.gc()
+    @test A == matread(f, "double", Matrix{Float64})
+
+    @test_throws "no variable or field named" matread(path, "nope", Matrix{Float64})
+end
