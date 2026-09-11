@@ -49,10 +49,14 @@ it cannot do.
 | whole file | `matread(path)` | — |
 | one variable | `matread(f, "A")` | `matread(f, "A", Matrix{Float64})` |
 | one variable, no handle | — | `matread(path, "A", Matrix{Float64})` |
+| a field below a mark | `matread(f, ref)` | `matread(f, ref, "wd/xf", Matrix{Float64})` |
 | works in a small program | no | yes |
 
 Give a path instead of an open file when you want one variable and nothing else. Open the
 file first when you want several, so it is read once rather than once for each variable.
+
+A mark is what a cell array gives you for each of its items. A path may start at one instead of
+at the top of the file, which is how you reach a field of a struct held in a cell.
 
 The short way works out the type from the file, as MAT.jl does. Use it in ordinary Julia code.
 
@@ -200,6 +204,16 @@ v.A
 |---|---|
 | `name::Type` | the variable called `name` |
 | `name = "a/path"::Type` | that path, under the name `name` |
+
+### The three sources
+
+The first item says where the paths in the block start.
+
+| you write | it reads from |
+|---|---|
+| `@matload "results.mat" begin` | that file, opened once for the whole block |
+| `@matload f begin` | a file you already opened |
+| `@matload f, ref begin` | the object `ref` marks, inside `f` |
 
 ## Writing a result
 
