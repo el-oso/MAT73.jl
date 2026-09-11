@@ -422,12 +422,40 @@ end
 @inline dtclass(::Type{<:Complex}) = DT_COMPOUND
 @inline dtclass(::Type{MatRef}) = DT_REFERENCE
 
+"What an HDF5 datatype class is called, so an error names it rather than numbering it."
+function classname(c::Int)
+    c == DT_FIXED && return "whole numbers"
+    c == DT_FLOAT && return "decimal numbers"
+    c == DT_STRING && return "text"
+    c == DT_COMPOUND && return "complex numbers"
+    c == DT_REFERENCE && return "marks"
+    return "a kind this package does not read"
+end
+
 function checkdatatype(oi::ObjInfo, ::Type{T}, name::String) where {T}
     want = dtclass(T)
-    oi.dt_class == want ||
-        error("variable \"", name, "\" has HDF5 datatype class ", oi.dt_class, ", not ", want)
+    oi.dt_class == want || error(
+        "variable \"", name, "\" holds ", classname(oi.dt_class), ", not ", classname(want),
+    )
     oi.dt_size == sizeof(T) ||
         error("variable \"", name, "\" stores ", oi.dt_size, "-byte elements, not ", sizeof(T))
+    # Every number this package reads is stored least significant byte first. Reading the
+    # other order as this one gives numbers that look real and are not.
+    oi.dt_bigendian &&
+        error("variable \"", name, "\" stores its numbers most significant byte first")
+    if want == DT_COMPOUND
+        # The total width alone does not separate a complex double from a pair of 8-byte
+        # whole numbers: both are 16 bytes. The halves settle it.
+        R = real(T)
+        oi.dt_member_class == dtclass(R) || error(
+            "variable \"", name, "\" holds complex numbers whose halves are ",
+            classname(oi.dt_member_class), ", not ", classname(dtclass(R)),
+        )
+        oi.dt_member_size == sizeof(R) || error(
+            "variable \"", name, "\" holds complex numbers of ", oi.dt_member_size,
+            "-byte halves, not ", sizeof(R),
+        )
+    end
     if want == DT_FIXED
         oi.dt_signed == (T <: Signed) ||
             error("variable \"", name, "\" has the opposite signedness to ", T)
@@ -520,6 +548,11 @@ class stored as one type and returned as another — `char`, held as code units 
 layout handling without going through the datatype checks a second time.
 """
 function readvalues(f::MatFile, oi::ObjInfo, name::String, ::Type{Array{T, N}}) where {T, N}
+    # Callers that skip the class checks, such as the subsystem, still may not read elements
+    # at the wrong width: every later step would be reading from the wrong place.
+    oi.dt_size == sizeof(T) || error(
+        "variable \"", name, "\" stores ", oi.dt_size, "-byte elements, not ", sizeof(T),
+    )
     out = Array{T, N}(undef, ntuple(k -> matdim(oi.dims, k, oi.nd), Val(N)))
 
     if oi.layout == LAYOUT_CHUNKED

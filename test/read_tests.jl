@@ -56,10 +56,22 @@ end
 @testitem "a mismatched datatype is an error, never a reinterpretation" setup = [Fixtures] begin
     f = matopen(fixture("simple.mat"))
     @test_throws "4-byte elements, not 8" matread(f, "single", Matrix{Float64})
-    @test_throws "datatype class" matread(f, "double", Matrix{Int64})
+    @test_throws "holds decimal numbers, not whole numbers" matread(f, "double", Matrix{Int64})
     @test_throws "opposite signedness" matread(f, "int32", Matrix{UInt32})
     @test_throws "rank" matread(f, "double", Vector{Float64})
     @test_throws "no variable or field named" matread(f, "nope", Matrix{Float64})
+end
+
+@testitem "complex halves are checked, not just the total width" setup = [Fixtures] begin
+    # A complex double and a pair of 8-byte whole numbers are both 16-byte compounds, so a
+    # width check alone would hand back the bits of one as the other.
+    f = matopen(fixture("complex.mat"))
+    @test_throws "halves are decimal numbers, not whole numbers" matread(
+        f, "imaginary", Matrix{Complex{Int64}}
+    )
+    # A narrower complex type differs in total width too, so that check speaks first.
+    @test_throws "16-byte elements, not 8" matread(f, "imaginary", Matrix{ComplexF32})
+    @test matread(f, "imaginary", Matrix{ComplexF64}) == oracle("complex.mat", "imaginary")
 end
 
 @testitem "chunked and deflated data matches the oracle" setup = [Fixtures] begin

@@ -45,10 +45,21 @@ end
 
 const ZLIB_OPTS = ZlibDecodeOptions()
 
+"""
+Inflate one chunk, which must produce exactly `nbytes`.
+
+`try_decode!` reports the size it produced and does not throw when the buffer is the wrong
+size: too small and it stops early, too large and it leaves the tail untouched. Neither is a
+readable chunk, so the size is compared here.
+"""
 function inflate(src::Vector{UInt8}, nbytes::Int)
     dst = Vector{UInt8}(undef, nbytes)
     got = try_decode!(ZLIB_OPTS, dst, src)
-    isnothing(got) && error("chunk did not inflate to the expected ", nbytes, " bytes")
+    is_size(got) ||
+        error("chunk holds more than the ", nbytes, " bytes a chunk of this dataset holds")
+    n = Int64(got)
+    n == nbytes ||
+        error("chunk inflated to ", n, " bytes, not the ", nbytes, " bytes the chunk holds")
     return dst
 end
 
@@ -114,7 +125,17 @@ function readchunked!(out::Array{T, N}, f::H5File, oi::ObjInfo) where {T, N}
     cn = b                       # elements in a whole chunk
     rawlen = cn * sz
 
+    # Every element must come from some chunk. A dataset whose chunks do not cover it leaves
+    # holes, and an uninitialised hole reads as whatever the heap held.
+    covered = 0
+
     for ref in chunkrefs(f, oi.chunk_btree, oi.chunk_ndl)
+        for k in 1:nd
+            # A chunk starts on a multiple of the chunk shape. Without this the index
+            # arithmetic below can land outside the array.
+            (ref.off[k] >= 0 && iszero(mod(ref.off[k], oi.chunk_dims[k]))) ||
+                error("a chunk starts at ", ref.off[k], ", which is not a chunk boundary")
+        end
         bytes = decodechunk(f, oi, ref, rawlen)
         length(bytes) >= rawlen || error("decoded chunk is shorter than the chunk extent")
         for li in 0:(cn - 1)
@@ -132,7 +153,12 @@ function readchunked!(out::Array{T, N}, f::H5File, oi::ObjInfo) where {T, N}
             end
             inbounds || continue
             out[gidx + 1] = readelem(T, bytes, li * sz)
+            covered += 1
         end
     end
+    covered == length(out) || error(
+        "the chunks of this variable cover ", covered, " of its ", length(out),
+        " elements; the rest have never been written",
+    )
     return out
 end

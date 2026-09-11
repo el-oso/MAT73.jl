@@ -84,6 +84,11 @@ struct ObjInfo
     dt_class::Int
     dt_size::Int     # bytes per element
     dt_signed::Bool  # meaningful only for DT_FIXED
+    dt_bigendian::Bool
+    # The two halves of a complex number, which a compound datatype describes. 0 when the
+    # datatype is not compound, or when its members were not read.
+    dt_member_class::Int
+    dt_member_size::Int
     # Chunked storage. `chunk_ndl` counts the dimensions as stored, which is the dataspace
     # rank plus one: HDF5 appends the element size as a trailing chunk dimension.
     chunk_btree::Int
@@ -115,6 +120,9 @@ mutable struct ObjAcc
     dt_class::Int
     dt_size::Int
     dt_signed::Bool
+    dt_bigendian::Bool
+    dt_member_class::Int
+    dt_member_size::Int
     chunk_btree::Int
     chunk_ndl::Int
     chunk_dims::NTuple{MAXRANK + 1, Int}
@@ -131,7 +139,7 @@ end
 
 ObjAcc() = ObjAcc(
     -1, -1, Link[], LAYOUT_NONE, -1, 0, 0, (0, 0, 0, 0, 0, 0, 0, 0),
-    -1, 0, false, -1, 0, (0, 0, 0, 0, 0, 0, 0, 0, 0),
+    -1, 0, false, false, 0, 0, -1, 0, (0, 0, 0, 0, 0, 0, 0, 0, 0),
     0, (0, 0, 0, 0), (0, 0, 0, 0), "", 0, false, -1, 0, Int[],
 )
 
@@ -148,7 +156,8 @@ function ObjInfo(a::ObjAcc)
     end
     return ObjInfo(
         a.stab_btree, a.stab_heap, a.links, a.layout, a.data_off, data_size, a.nd, a.dims,
-        a.dt_class, a.dt_size, a.dt_signed,
+        a.dt_class, a.dt_size, a.dt_signed, a.dt_bigendian,
+        a.dt_member_class, a.dt_member_size,
         a.chunk_btree, a.chunk_ndl, a.chunk_dims, a.nfilters, a.filter_ids, a.filter_cd1,
         a.mclass, a.int_decode, a.mempty, a.msparse, a.mobject,
     )
@@ -335,6 +344,24 @@ function handle_message!(a::ObjAcc, f::H5File, mtype::Int, d::Int)
         a.dt_class = Int(buf[d + 1] & 0x0f)
         a.dt_signed = !iszero((buf[d + 2] >> 3) & 0x01)
         a.dt_size = Int(readuint(buf, d + 4, 4))
+        # Bit 0 of the class bit field is the byte order of a number.
+        a.dt_bigendian = !iszero(buf[d + 2] & 0x01)
+        if a.dt_class == DT_COMPOUND && isone(buf[d + 1] >> 4)
+            # A complex number is a compound of 2 members. The first one says what the halves
+            # are, which is the only thing that separates a complex double from a pair of
+            # 8-byte integers. A version 1 member is a name padded to 8 bytes, then 32 bytes
+            # of shape, then the member's own datatype message.
+            n = 0
+            while d + 9 + n <= length(buf) && !iszero(buf[d + 9 + n])
+                n += 1
+            end
+            m = d + 8 + 8 * div(n + 8, 8) + 32
+            if m + 8 <= length(buf)
+                a.dt_member_class = Int(buf[m + 1] & 0x0f)
+                a.dt_member_size = Int(readuint(buf, m + 4, 4))
+                a.dt_bigendian = !iszero(buf[m + 2] & 0x01)
+            end
+        end
     elseif mtype == 6                    # link
         name, addr = readlink(f, d)
         addr >= 0 && push!(a.links, (name, addr))

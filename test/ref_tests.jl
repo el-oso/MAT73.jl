@@ -100,7 +100,9 @@ end
         f = matopen(markfile(dir))
         one = matread(f, "runs", Matrix{MatRef})[1, 1]
         @test_throws "rank 2, not 3" matread(f, one, "inner/values", Array{Float64, 3})
-        @test_throws "datatype class" matread(f, one, "inner/values", Matrix{Int64})
+        @test_throws "holds decimal numbers, not whole numbers" matread(
+            f, one, "inner/values", Matrix{Int64}
+        )
         @test_throws "not a MATLAB char array" matread(f, one, "inner/values", String)
         # The error names the path asked for, not the mark it started from.
         @test_throws "\"inner/values\" holds 3 values, not 1" matread(
