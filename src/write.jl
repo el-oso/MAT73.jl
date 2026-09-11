@@ -75,6 +75,13 @@ MatWriter() = MatWriter(MatNode[groupnode("", Vector{UInt8}[])])
 
 "Add `node` under `parent` and give back its position."
 function addnode!(w::MatWriter, parent::Int, node::MatNode)
+    isempty(node.name) && error("a variable needs a name")
+    occursin('/', node.name) &&
+        error("\"", node.name, "\" cannot be a name: a name may not hold a \"/\"")
+    for c in w.nodes[parent].children
+        w.nodes[c].name == node.name &&
+            error("\"", node.name, "\" is already written here; every name must differ")
+    end
     push!(w.nodes, node)
     i = length(w.nodes)
     push!(w.nodes[parent].children, i)
@@ -277,6 +284,39 @@ matlab_class(::Type{Bool}) = "logical"
 matlab_class(::Type{T}) where {T <: Integer} = lowercase(string(nameof(T)))
 
 """
+The element types MATLAB has a class for. A wider whole number, such as `Int128`, has no
+MATLAB class, so a file holding one would name a class MATLAB cannot read.
+"""
+const Writable = Union{
+    Bool, Float32, Float64,
+    Int8, Int16, Int32, Int64, UInt8, UInt16, UInt32, UInt64,
+}
+
+"""
+Attribute message marking an array with no elements. MATLAB stores the dimensions in place of
+the contents, so a 0x3 keeps its shape.
+"""
+function matlab_empty_attribute()
+    data = UInt8[]
+    putuint!(data, 1, 1)
+    return attribute_message(
+        "MATLAB_empty", datatype_message(UInt8), scalar_dataspace_message(), data,
+    )
+end
+
+"An array with no elements, written the way MATLAB writes one."
+function emptynode(name::String, class::String, dims::Vector{Int})
+    data = UInt8[]
+    for d in dims
+        putuint!(data, d, 8)
+    end
+    attrs = Vector{UInt8}[matlab_class_attribute(class), matlab_empty_attribute()]
+    return datasetnode(
+        name, datatype_message(UInt64), dataspace_message([length(dims)]), attrs, data,
+    )
+end
+
+"""
 Add one value under `parent`, and give back its position.
 
 The methods cover the whole of what this package writes. Each one settles what to write from
@@ -284,7 +324,12 @@ the type it is given, so the choice is made while the program is compiled.
 """
 function addvalue!(
         w::MatWriter, parent::Int, name::String, a::Array{T, N},
-    ) where {T <: Union{Bool, Float32, Float64, Integer}, N}
+    ) where {T <: Writable, N}
+    # An array with no elements holds its own dimensions instead of its contents. A dataset
+    # of 0 bytes is not a thing the HDF5 C library will open.
+    isempty(a) && return addnode!(
+        w, parent, emptynode(name, matlab_class(T), collect(size(a))),
+    )
     attrs = Vector{UInt8}[matlab_class_attribute(matlab_class(T))]
     T === Bool && push!(attrs, matlab_int_decode_attribute(1))
     dt = T === Bool ? datatype_message(UInt8) : datatype_message(T)
@@ -295,15 +340,13 @@ function addvalue!(
 end
 
 # A MATLAB scalar is a 1x1 array, which is what MATLAB itself shows for one number.
-function addvalue!(
-        w::MatWriter, parent::Int, name::String, x::Union{Bool, Float32, Float64, Integer},
-    )
-    return addvalue!(w, parent, name, fill(x, 1, 1))
-end
+addvalue!(w::MatWriter, parent::Int, name::String, x::Writable) =
+    addvalue!(w, parent, name, fill(x, 1, 1))
 
 "MATLAB holds char data as UTF-16 code units in a 1xN array."
 function addvalue!(w::MatWriter, parent::Int, name::String, s::AbstractString)
     units = transcode(UInt16, String(s))
+    isempty(units) && return addnode!(w, parent, emptynode(name, "char", [0, 0]))
     attrs = Vector{UInt8}[
         matlab_class_attribute("char"), matlab_int_decode_attribute(2),
     ]

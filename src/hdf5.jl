@@ -76,6 +76,9 @@ struct ObjInfo
     stab_btree::Int
     stab_heap::Int
     links::Vector{Link}  # from link messages; a compact group carries its entries here
+    # A link-info message marks a group whether or not it holds any links, which is the only
+    # thing that says an empty compact group is a group.
+    linkinfo::Bool
     layout::Int
     data_off::Int    # 0-based file offset of the raw data, -1 if unallocated
     data_size::Int   # bytes
@@ -112,6 +115,7 @@ mutable struct ObjAcc
     stab_btree::Int
     stab_heap::Int
     links::Vector{Link}
+    linkinfo::Bool
     layout::Int
     data_off::Int
     data_size::Int
@@ -138,7 +142,7 @@ mutable struct ObjAcc
 end
 
 ObjAcc() = ObjAcc(
-    -1, -1, Link[], LAYOUT_NONE, -1, 0, 0, (0, 0, 0, 0, 0, 0, 0, 0),
+    -1, -1, Link[], false, LAYOUT_NONE, -1, 0, 0, (0, 0, 0, 0, 0, 0, 0, 0),
     -1, 0, false, false, 0, 0, -1, 0, (0, 0, 0, 0, 0, 0, 0, 0, 0),
     0, (0, 0, 0, 0), (0, 0, 0, 0), "", 0, false, -1, 0, Int[],
 )
@@ -155,7 +159,8 @@ function ObjInfo(a::ObjAcc)
         data_size = n * a.dt_size
     end
     return ObjInfo(
-        a.stab_btree, a.stab_heap, a.links, a.layout, a.data_off, data_size, a.nd, a.dims,
+        a.stab_btree, a.stab_heap, a.links, a.linkinfo, a.layout, a.data_off, data_size,
+        a.nd, a.dims,
         a.dt_class, a.dt_size, a.dt_signed, a.dt_bigendian,
         a.dt_member_class, a.dt_member_size,
         a.chunk_btree, a.chunk_ndl, a.chunk_dims, a.nfilters, a.filter_ids, a.filter_cd1,
@@ -224,9 +229,15 @@ function open_h5(path::String)
         osize = Int(buf[sb + 10])
         lsize = Int(buf[sb + 11])
         p = sb + 12                   # past signature, version, sizes and consistency flags
+        checkblock(buf, sb, p + 4 * osize, "the superblock")
         baseaddr = Int(readuint(buf, p, osize))
         # base address, superblock extension, end of file, then the root object header.
         root = readaddr(buf, p + 3 * osize, osize)
+        # libhdf5 works from where the superblock actually is. A stored base that says
+        # otherwise means the file has been moved or cut, and every address would be wrong.
+        baseaddr == sb || error(
+            "the superblock sits at ", sb, " but the file says its base address is ", baseaddr,
+        )
         return H5File(buf, sb, osize, lsize, baseaddr, root)
     end
     return error("unsupported superblock version ", version)
@@ -362,6 +373,8 @@ function handle_message!(a::ObjAcc, f::H5File, mtype::Int, d::Int)
                 a.dt_bigendian = !iszero(buf[m + 2] & 0x01)
             end
         end
+    elseif mtype == 2                    # link info
+        a.linkinfo = true
     elseif mtype == 6                    # link
         name, addr = readlink(f, d)
         addr >= 0 && push!(a.links, (name, addr))
@@ -376,6 +389,9 @@ function handle_message!(a::ObjAcc, f::H5File, mtype::Int, d::Int)
                 addr = readaddr(buf, d + 2, f.osize)
                 a.data_off = addr < 0 ? -1 : foff(f, addr)
             elseif a.layout == LAYOUT_CHUNKED
+                # Version 4 lays chunked storage out differently: flags, then a width for
+                # the dimensions, then an indexing type. Only versions 1 to 3 are read.
+                v == 3 || error("data layout version ", v, " chunked storage is not read")
                 # Dimensionality, then the B-tree root, then that many 4-byte chunk
                 # dimensions. The trailing one is the element size, not an extent.
                 a.chunk_ndl = Int(buf[d + 3])
@@ -477,6 +493,10 @@ function scan_v1!(a::ObjAcc, f::H5File, o::Int)
             msize = Int(readuint(buf, p + 2, 2))
             d = p + 8
             seen += 1
+            # Bit 1 of the flags says the body is a pointer to a message held elsewhere, not
+            # the message. Reading it as the message would decode the pointer as data.
+            iszero(buf[p + 5] & 0x02) ||
+                error("this file shares an object header message, which is not read")
             handle_message!(a, f, mtype, d)
             p = d + msize
         end
@@ -485,9 +505,24 @@ function scan_v1!(a::ObjAcc, f::H5File, o::Int)
 end
 
 """
+Check the running total that closes a version-2 block.
+
+Every version-2 structure ends with a checksum over its own bytes. Checking it turns a
+damaged file into an error here rather than into values that look real.
+"""
+function checkblock(buf::Vector{UInt8}, start::Int, stop::Int, what::String)
+    (start >= 0 && stop >= start && stop + 4 <= length(buf)) ||
+        error(what, " runs past the end of the file")
+    want = readuint(buf, stop, 4)
+    got = checksum(buf, start, stop - start)
+    got == want || error(what, " is damaged: its running total does not match its bytes")
+    return nothing
+end
+
+"""
 Version-2 object header: a signed block whose size is declared up front, holding messages
 with a one-byte type and a flags byte. Continuation blocks repeat the shape behind an "OCHK"
-signature, and each block ends with a checksum that is not verified here.
+signature, and each block ends with a checksum over the block.
 """
 function scan_v2!(a::ObjAcc, f::H5File, o::Int)
     buf = f.buf
@@ -506,18 +541,24 @@ function scan_v2!(a::ObjAcc, f::H5File, o::Int)
         q = a.blocks[bi]
         stop = q + a.blocks[bi + 1]
         bi += 2
+        # The checksum covers the whole block, which for the first one starts at the
+        # signature rather than at the first message.
+        cstart = bi == 3 ? o : q
         # A continuation block repeats the signature before its messages, and its declared
         # length covers the signature and the trailing checksum.
         if sigat(buf, q, OCHK_SIG)
             q += 4
             stop -= 4
         end
+        checkblock(buf, cstart, stop, "an object header")
         while q + 4 <= stop
             mtype = Int(buf[q + 1])
             msize = Int(readuint(buf, q + 1, 2))
             d = q + 4 + (ordered ? 2 : 0)
             # A run of zero bytes is the gap HDF5 leaves before the block's checksum.
             iszero(mtype) && iszero(msize) && break
+            iszero(buf[q + 4] & 0x02) ||
+                error("this file shares an object header message, which is not read")
             handle_message!(a, f, mtype, d)
             q = d + msize
         end
@@ -541,6 +582,10 @@ end
 function heapname(f::H5File, heap::Int, nameoff::Int)
     buf = f.buf
     h = foff(f, heap)
+    # "HEAP". The other structures check their own signature, and a wrong address here would
+    # otherwise be read as an offset into nothing.
+    (buf[h + 1] == 0x48 && buf[h + 2] == 0x45 && buf[h + 3] == 0x41 && buf[h + 4] == 0x50) || # noidiom
+        error("expected a HEAP at the address the group gives for its names")
     dseg = foff(f, Int(readuint(buf, h + 8 + 2 * f.lsize, f.osize)))
     s = dseg + nameoff
     e = s
@@ -557,6 +602,8 @@ function walk_group!(names::Vector{String}, addrs::Vector{Int}, f::H5File, btree
     while !isempty(todo)
         node = foff(f, pop!(todo))
         (buf[node + 1] == 0x54 && buf[node + 2] == 0x52) || error("expected a TREE node") # noidiom
+        # Node type 0 indexes a group's names; type 1 indexes the chunks of a dataset.
+        iszero(buf[node + 5]) || error("expected a tree of group names, not of data chunks")
         level = Int(buf[node + 6])
         nused = Int(readuint(buf, node + 6, 2))
         p = node + 8 + 2 * f.osize
@@ -603,7 +650,7 @@ end
 groupentries(f::H5File, addr::Int) = groupentries(f, objinfo(f, addr))
 
 "True when this object header describes a group rather than a dataset."
-isgroup(oi::ObjInfo) = oi.stab_btree >= 0 || !isempty(oi.links)
+isgroup(oi::ObjInfo) = oi.stab_btree >= 0 || oi.linkinfo || !isempty(oi.links)
 
 function rootentries(f::H5File)
     oi = objinfo(f, f.root)

@@ -116,6 +116,17 @@ function mcos_tables(blob::Vector{UInt8})
         error("unsupported MATLAB object metadata version ", version, "; only ", MCOS_VERSION, " is read")
     ncount = mcosword(blob, 1)
     offsets = [mcosword(blob, 1 + k) for k in 1:8]
+    # The regions follow one another in order. A region that ran backwards or past the end
+    # would read as empty tables, and every lookup after that would report a missing name
+    # rather than a damaged file.
+    for k in 1:8
+        offsets[k] >= 40 ||
+            error("the subsystem metadata puts region ", k, " inside its own header")
+        offsets[k] <= length(blob) ||
+            error("the subsystem metadata puts region ", k, " past the end of the block")
+        (k == 1 || offsets[k] >= offsets[k - 1]) ||
+            error("the subsystem metadata regions are not in order")
+    end
 
     names = mcos_names(blob, offsets[1], ncount)
     length(names) == ncount ||

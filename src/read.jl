@@ -402,6 +402,8 @@ function matsize(h5::H5File, oi::ObjInfo)
         # An empty array stores its own dimensions as the dataset's contents, so that a
         # 0x3 keeps its shape rather than collapsing to 0x0.
         n = oi.nd >= 1 ? oi.dims[1] : 0
+        (oi.data_off >= 0 && oi.data_off + n * oi.dt_size <= length(h5.buf)) ||
+            error("an empty array says it has ", n, " dimensions, which are not in the file")
         dims = Vector{Int}(undef, n)
         for k in 1:n
             dims[k] = Int(readuint(h5.buf, oi.data_off + (k - 1) * oi.dt_size, oi.dt_size))
