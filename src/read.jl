@@ -105,13 +105,78 @@ of the file, so the result stays valid after the file is closed.
 matread(path::String, key::String, ::Type{T}) where {T} = matread(matopen(path), key, T)
 
 """
+    matref(f, parent, path) -> MatRef
+
+Find what `path` names below `parent`, and give back a mark for it without reading it.
+
+`parent` marks a struct, an object, or one item of a cell or struct array. Use this to step
+down to a place you want to read from more than once, or to a cell you mean to walk.
+
+```julia
+items = matread(f, "cases", Matrix{MatRef})
+layer = matref(f, items[1], "layer")     # a struct two steps down
+matread(f, layer, "name", String)
+```
+"""
+matref(f::MatFile, parent::MatRef, path::String) = MatRef(lookup(f, parent, path))
+
+"""
+    matread(f, parent, path, T) -> T
+
+Read what `path` names below `parent`, as type `T`.
+
+`parent` marks a struct, an object, or one item of a cell or struct array. A cell array gives
+you one mark for each item, so this is how you read a field of the struct behind one of them.
+
+```julia
+cases = matread(f, "cases", Matrix{MatRef})
+one = cases[1, 1]
+
+n = matread(f, one, "nfield", Float64)              # one number
+xf = matread(f, one, "wd/xf", Matrix{Float64})      # a field of a field
+names = matread(f, one, "layer/name", Matrix{MatRef})
+```
+
+`path` goes down as many steps as you write, with `/` between them. Every type that the
+2-argument form takes is taken here as well.
+
+A plain number type means a MATLAB scalar, which is a 1x1 array in the file. You get the
+value. If the field holds more than one value, this stops with an error. Ask for
+`Matrix{Float64}` when you want the array.
+
+You state the type, so this works inside a small compiled program.
+"""
+function matread(f::MatFile, parent::MatRef, path::String, ::Type{T}) where {T}
+    return matfield(f, MatPath(lookup(f, parent, path), path), T)
+end
+
+"""
 Address of the object at `path`. A path may descend through groups with `/`, which is how a
 struct's fields are reached: `matread(f, "s/a", Matrix{Float64})`.
 """
-function lookup(f::MatFile, path::String)
-    names = f.names
-    addrs = f.addrs
-    addr = -1
+lookup(f::MatFile, path::String) = walkpath(f, -1, f.names, f.addrs, path)
+
+"""
+Address of the object at `path`, starting from the object `parent` points at rather than from
+the top of the file.
+
+`parent` may be a struct, an object, or one item of a cell or struct array. The path then
+means the same thing it means at the top of the file.
+"""
+function lookup(f::MatFile, parent::MatRef, path::String)
+    names, addrs = groupentries(f.h5, parent.addr)
+    return walkpath(f, parent.addr, names, addrs, path)
+end
+
+"""
+Follow `path` one name at a time from a starting point.
+
+`addr` is where the walk stands and is negative at the top of the file, which has no object of
+its own. `names` and `addrs` are what that starting point contains.
+"""
+function walkpath(
+        f::MatFile, addr::Int, names::Vector{String}, addrs::Vector{Int}, path::String,
+    )
     for part in split(path, '/'; keepempty = false)
         found = -1
         for i in eachindex(names)
@@ -301,13 +366,24 @@ function matclass(f::MatFile, key)
     return classof(oi.mclass)
 end
 
+"""
+An address that already knows the path it was reached by, so an error about it can name that
+path rather than the address.
+"""
+struct MatPath
+    addr::Int
+    name::String
+end
+
 # A variable is named by a path or reached through a reference; both resolve to an address.
 @inline address(f::MatFile, path::String) = lookup(f, path)
 @inline address(::MatFile, r::MatRef) = r.addr
+@inline address(::MatFile, k::MatPath) = k.addr
 
 # What to call the object in an error message.
 @inline keyname(path::String) = path
 @inline keyname(r::MatRef) = "referenced object"
+@inline keyname(k::MatPath) = k.name
 
 """
     matsize(f, name) -> Vector{Int}

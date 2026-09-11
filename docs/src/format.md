@@ -51,6 +51,36 @@ matread(f, "s/a", Matrix{Float64})         # one field, by path
 A cell inside a cell gives you more marks. The steps stay the same. Paths can also go deeper,
 such as `"s/inner/a"`.
 
+### A path that starts at a mark
+
+**A path can start at a mark instead of at the top of the file.**
+
+This matters for a cell of structs, which is a common shape. The cell gives you a mark for
+each struct. From there you name the field you want:
+
+```julia
+cases = matread(f, "cases", Matrix{MatRef})
+one = cases[1, 1]
+
+matread(f, one, "nfield", Float64)            # one number
+matread(f, one, "wd/xf", Matrix{Float64})     # a field of a field
+matread(f, one, "layer/name", Matrix{MatRef}) # a cell field, so more marks
+```
+
+The path works the same way it does at the top of the file. It goes down as many steps as you
+write. Every type the 2-argument form takes is taken here as well, and the checks are the same
+ones.
+
+A plain number type means a MATLAB scalar. You get the value, not the 1x1 array.
+
+[`matref`](@ref) steps down without reading, for a place you want to use more than once:
+
+```julia
+wd = matref(f, one, "wd")
+matread(f, wd, "xf", Matrix{Float64})
+matread(f, wd, "yf", Matrix{Float64})
+```
+
 ## Objects of a class
 
 **An object holds no data. It holds numbers that point into a table.**

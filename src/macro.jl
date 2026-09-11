@@ -5,29 +5,43 @@
 # saves typing. It does not change what the reads do.
 
 """
-The file a [`@matload`](@ref) block reads from. A path is opened. An open file is used as it
-stands, so a caller that already has one does not open it twice.
+What a [`@matload`](@ref) block reads from.
+
+- An open file, used as it stands, so a caller that already has one does not open it twice.
+- A path, which is opened.
+- A file and a mark into it, which makes every path in the block relative to that mark.
 """
 matsource(f::MatFile) = f
 matsource(path::String) = matopen(path)
+matsource(t::Tuple{MatFile, MatRef}) = t
+
+"The file a source reads from."
+sourcefile(f::MatFile) = f
+sourcefile(t::Tuple{MatFile, MatRef}) = t[1]
+
+"Where a path in the block starts from, resolved to something the typed reads accept."
+sourcekey(f::MatFile, path::String) = MatPath(lookup(f, path), path)
+sourcekey(t::Tuple{MatFile, MatRef}, path::String) = MatPath(lookup(t[1], t[2], path), path)
 
 """
-Read one field for [`@matload`](@ref). The 3 methods pick the right read from the type you
-asked for, at compile time.
+Read one field for [`@matload`](@ref) and [`matread(f, parent, path, T)`](@ref). The 3 methods
+pick the right read from the type you asked for, at compile time.
 
 A plain number type means a MATLAB scalar, which is a 1x1 array in the file. The single value
 comes back, not the array.
 """
-function matfield(f::MatFile, path::String, ::Type{Array{T, N}}) where {T, N}
-    return matread(f, path, Array{T, N})
+function matfield(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
+    return matread(f, key, Array{T, N})
 end
 
-matfield(f::MatFile, path::String, ::Type{String}) = matread(f, path, String)
+matfield(f::MatFile, key, ::Type{String}) = matread(f, key, String)
 
-function matfield(f::MatFile, path::String, ::Type{T}) where {T}
-    a = matread(f, path, Matrix{T})
-    isone(length(a)) ||
-        error("variable \"", path, "\" holds ", length(a), " values, not 1; ask for an array type")
+function matfield(f::MatFile, key, ::Type{T}) where {T}
+    a = matread(f, key, Matrix{T})
+    isone(length(a)) || error(
+        "variable \"", keyname(key), "\" holds ", length(a),
+        " values, not 1; ask for an array type",
+    )
     return a[1]
 end
 
@@ -41,7 +55,19 @@ end
 
 Read several variables at once and give back a named tuple.
 
-The first argument is an open file or a path. A path is opened once for the whole block.
+The first argument says where to read from: an open file, a path, or a file and a mark. A path
+is opened once for the whole block. With `f, ref` every path in the block starts at `ref`
+instead of at the top of the file.
+
+```julia
+cases = matread(f, "cases", Matrix{MatRef})
+
+v = @matload f, cases[1] begin
+    nfield = "nfield"::Float64
+    xf = "wd/xf"::Matrix{Float64}
+end
+```
+
 
 ```julia
 v = @matload "results.mat" begin
@@ -97,7 +123,13 @@ macro matload(file, block)
                 "@matload takes lines of the form `name::Type` or `name = \"a/path\"::Type`, not `$line`"
             )
         )
-        push!(fields, Expr(:(=), name, :($matfield($src, $path, $(esc(type))))))
+        push!(
+            fields,
+            Expr(
+                :(=), name,
+                :($matfield($sourcefile($src), $sourcekey($src, $path), $(esc(type)))),
+            ),
+        )
     end
     isempty(fields) && throw(ArgumentError("@matload needs at least one variable"))
     return Expr(

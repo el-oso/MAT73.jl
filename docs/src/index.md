@@ -170,7 +170,24 @@ v = @matload f begin
 end
 ```
 
-### Example 6: one variable, no block
+### Example 6: fields below a mark
+
+A cell of structs gives you a mark for each struct. Give the macro the file and the mark, and
+every path in the block starts there.
+
+```julia
+cases = matread(f, "cases", Matrix{MatRef})
+
+v = @matload f, cases[1] begin
+    nfield = "nfield"::Float64
+    xf = "wd/xf"::Matrix{Float64}
+end
+```
+
+The same read without the macro is [`matread(f, mark, path, T)`](@ref
+matread(::MAT73.MatFile, ::MAT73.MatRef, ::String, ::Type)).
+
+### Example 7: one variable, no block
 
 ```julia
 v = @matload f A::Matrix{Float64}

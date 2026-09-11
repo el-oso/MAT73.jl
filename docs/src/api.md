@@ -21,6 +21,8 @@ MAT73.matfield
 ```@docs
 matopen
 matread(::String, ::String, ::Type)
+matread(::MAT73.MatFile, ::MAT73.MatRef, ::String, ::Type)
+matref
 matclass
 matsize
 matkeys

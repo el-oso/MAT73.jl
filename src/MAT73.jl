@@ -21,7 +21,7 @@ using Dates: DateTime, Millisecond
 using ChunkCodecLibZlib: ZlibDecodeOptions
 using ChunkCodecLibZlib.ChunkCodecCore: try_decode!
 
-export matopen, matread, matsize, matclass, matkeys, matobjectclass, MatClass, MatRef,
+export matopen, matread, matref, matsize, matclass, matkeys, matobjectclass, MatClass, MatRef,
     matwrite, MatWriter, @matload
 
 include("lookup3.jl")

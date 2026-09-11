@@ -95,6 +95,9 @@ The two line forms:
 | `name::Type` | the variable called `name` |
 | `name = "a/path"::Type` | that path, under the name `name` |
 
+The first item is a path, an open file, or a file and a mark. With `f, ref` every path in the
+block starts at `ref`.
+
 ## What the check does
 
 When you give the type, the package does 3 checks against the file:
@@ -157,6 +160,22 @@ matread(f, "s/a", Matrix{Float64})        # one field, by path
 ```
 
 A cell inside a cell gives you more marks. The steps stay the same.
+
+**A path can also start at a mark.** This is how you read a field of a struct held in a cell:
+
+```julia
+cases = matread(f, "cases", Matrix{MatRef})
+one = cases[1, 1]
+
+matread(f, one, "nfield", Float64)            # one number
+matread(f, one, "wd/xf", Matrix{Float64})     # a field of a field
+matref(f, one, "wd")                          # step down without reading
+
+v = @matload f, one begin                     # or read several at once
+    nfield = "nfield"::Float64
+    xf = "wd/xf"::Matrix{Float64}
+end
+```
 
 ## Objects of a class
 

@@ -36,9 +36,26 @@ using TrimCheck
                     label::String
                 end
             end
+            # The same block starting at a mark rather than at the top of the file.
+            @eval function loadbelow(f::MAT73.MatFile, r::MAT73.MatRef)
+                return MAT73.@matload f, r begin
+                    nfield = "nfield"::Float64
+                    xf = "wd/xf"::Matrix{Float64}
+                    tag = "tag"::String
+                end
+            end
         end,
         Main.loadfields(MAT73.MatFile),
         Main.loadfrompath(String),
+        Main.loadbelow(MAT73.MatFile, MAT73.MatRef),
+        MAT73.matref(MAT73.MatFile, MAT73.MatRef, String),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Float64}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Matrix{Float64}}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{String}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Matrix{MAT73.MatRef}}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Matrix{MAT73.DateTime}}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Matrix{String}}),
+        MAT73.matread(MAT73.MatFile, MAT73.MatRef, String, Type{Array{Char, 2}}),
         MAT73.matopen(String),
         MAT73.matread(String, String, Type{Matrix{Float64}}),
         MAT73.matread(String, String, Type{String}),
