@@ -13,7 +13,6 @@ matread(::MAT73.MatFile, ::Any)
 
 ```@docs
 @matload
-MAT73.matfield
 ```
 
 ## Reading, with the type
@@ -22,6 +21,7 @@ MAT73.matfield
 matopen
 matread(::String, ::String, ::Type)
 matread(::MAT73.MatFile, ::MAT73.MatRef, ::String, ::Type)
+matread(::MAT73.MatFile, ::Any, ::Type{<:Number})
 matref
 matclass
 matsize

@@ -24,28 +24,6 @@ sourcekey(f::MatFile, path::String) = MatPath(lookup(f, path), path)
 sourcekey(t::Tuple{MatFile, MatRef}, path::String) = MatPath(lookup(t[1], t[2], path), path)
 
 """
-Read one field for [`@matload`](@ref) and [`matread(f, parent, path, T)`](@ref). The 3 methods
-pick the right read from the type you asked for, at compile time.
-
-A plain number type means a MATLAB scalar, which is a 1x1 array in the file. The single value
-comes back, not the array.
-"""
-function matfield(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
-    return matread(f, key, Array{T, N})
-end
-
-matfield(f::MatFile, key, ::Type{String}) = matread(f, key, String)
-
-function matfield(f::MatFile, key, ::Type{T}) where {T}
-    a = matread(f, key, Matrix{T})
-    isone(length(a)) || error(
-        "variable \"", keyname(key), "\" holds ", length(a),
-        " values, not 1; ask for an array type",
-    )
-    return a[1]
-end
-
-"""
     @matload f begin
         A::Matrix{Float64}
         n::Int64
@@ -127,7 +105,7 @@ macro matload(file, block)
             fields,
             Expr(
                 :(=), name,
-                :($matfield($sourcefile($src), $sourcekey($src, $path), $(esc(type)))),
+                :($matread($sourcefile($src), $sourcekey($src, $path), $(esc(type)))),
             ),
         )
     end

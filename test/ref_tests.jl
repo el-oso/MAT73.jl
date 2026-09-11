@@ -133,3 +133,32 @@ end
     @test matread(f, items[1], Matrix{Float64}) == fill(1.0, 1, 1)
     @test matread(f, items[2], Matrix{Float64}) == fill(2.0, 1, 1)
 end
+
+@testitem "a table reads below a mark and through the macro" setup = [Fixtures] begin
+    # A named tuple asks for a table. The scalar rule must not claim that type first.
+    import MAT
+
+    path = fixture("struct_table_datetime.mat")
+    f = matopen(path)
+    ref = MAT.matread(path)["s"]["testTable"]
+    want = NamedTuple{(:Customer, :FlightNum), Tuple{Vector{String}, Vector{Float64}}}
+
+    s = MAT73.MatRef(MAT73.address(f, "s"))
+    t = matread(f, s, "testTable", want)
+    @test t.Customer == ref[:Customer]
+
+    v = @matload f, s begin
+        table = "testTable"::NamedTuple{
+            (:Customer, :FlightNum), Tuple{Vector{String}, Vector{Float64}},
+        }
+    end
+    @test v.table.FlightNum == ref[:FlightNum]
+end
+
+@testitem "a scalar reads with the plain type, from a name as well as a mark" setup = [Fixtures] begin
+    f = matopen(fixture("simple.mat"))
+    @test matread(f, "double", Float64) === 1.0
+    @test matread(f, "int32", Int32) === Int32(1)
+    g = matopen(fixture("array.mat"))
+    @test_throws "holds 4 values, not 1" matread(g, "a2x2", Float64)
+end

@@ -100,7 +100,7 @@ A = matread("results.mat", "A", Matrix{Float64})
 ```
 
 You state the type, so this works inside a small compiled program. The values are copied out
-of the file, so the result stays valid after the file is closed.
+of the file, so the result stays valid once nothing refers to the file any more.
 """
 matread(path::String, key::String, ::Type{T}) where {T} = matread(matopen(path), key, T)
 
@@ -137,17 +137,13 @@ v = matread(f, one, "inner/values", Matrix{Float64})  # a field of a field
 names = matread(f, one, "parts/name", Matrix{MatRef})
 ```
 
-`path` goes down as many steps as you write, with `/` between them. Every type that the
-2-argument form takes is taken here as well.
-
-A plain number type means a MATLAB scalar, which is a 1x1 array in the file. You get the
-value. If the field holds more than one value, this stops with an error. Ask for
-`Matrix{Float64}` when you want the array.
+`path` goes down as many steps as you write, with `/` between them. Every type the 3-argument
+form takes is taken here as well, a plain number type among them.
 
 You state the type, so this works inside a small compiled program.
 """
 function matread(f::MatFile, parent::MatRef, path::String, ::Type{T}) where {T}
-    return matfield(f, MatPath(lookup(f, parent, path), path), T)
+    return matread(f, MatPath(lookup(f, parent, path), path), T)
 end
 
 """
@@ -334,16 +330,9 @@ Give the names inside a group.
 
 The names come in file order. MATLAB may use a different order for the fields of a struct.
 """
-function matkeys(f::MatFile, path::String)
-    isempty(path) && return copy(f.names)
-    addr = lookup(f, path)
-    oi = objinfo(f.h5, addr)
-    isobjectref(f, oi) && return objectkeys(f, oi)
-    return groupentries(f.h5, oi)[1]
-end
-
-function matkeys(f::MatFile, r::MatRef)
-    oi = objinfo(f.h5, r.addr)
+function matkeys(f::MatFile, key)
+    (key isa String && isempty(key)) && return copy(f.names)
+    oi = objinfo(f.h5, address(f, key))
     isobjectref(f, oi) && return objectkeys(f, oi)
     return groupentries(f.h5, oi)[1]
 end
@@ -382,7 +371,7 @@ end
 
 # What to call the object in an error message.
 @inline keyname(path::String) = path
-@inline keyname(r::MatRef) = "referenced object"
+@inline keyname(r::MatRef) = string("the object at ", r.addr)
 @inline keyname(k::MatPath) = k.name
 
 """
@@ -499,6 +488,21 @@ end
     return Complex(fromuint(T, readuint(b, off, s)), fromuint(T, readuint(b, off + s, s)))
 end
 
+"""
+Is a dataset of rank `nd` readable as an array of rank `N`?
+
+A trailing dimension of 1 says nothing about the shape, and the HDF5 C library writes MATLAB's
+1xN as 1xNx1. So a rank may be met by dropping trailing ones, and an `Nx1` may be read as a
+`Vector`. A leading 1 is a row, which MATLAB means, so it stays.
+"""
+function rankfits(dims::NTuple{MAXRANK, Int}, nd::Int, N::Int)
+    nd >= N || return false
+    for k in (N + 1):nd
+        isone(matdim(dims, k, nd)) || return false
+    end
+    return true
+end
+
 # Its own function so `dims` is a plain argument. A local that is assigned in one branch and
 # then captured by a closure is boxed, and the box reads infer `Any`, which `--trim=safe`
 # rejects — the same shape whether the closure is `ntuple`'s or written by hand.
@@ -536,10 +540,14 @@ function matread(f::MatFile, key, ::Type{Array{T, N}}) where {T, N}
     oi = objinfo(f.h5, address(f, key))
     iszero(oi.mobject) || error("variable \"", name, "\" is a MATLAB object, which is not read")
     oi.msparse < 0 || error("variable \"", name, "\" is sparse, which is not read")
+    isgroup(oi) && error(
+        "variable \"", name, "\" is a struct, not an array; read one field of it instead",
+    )
 
     oi.mempty && return emptyarray(Array{T, N}, matsize(f.h5, oi), name)
 
-    oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
+    rankfits(oi.dims, oi.nd, N) ||
+        error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
     checkdatatype(oi, T, name)
     return readvalues(f, oi, name, Array{T, N})
 end
@@ -602,7 +610,8 @@ function matread(f::MatFile, key, ::Type{Array{Char, N}}) where {N}
     oi = objinfo(f.h5, address(f, key))
     ischararray(oi) || error("variable \"", name, "\" is not a MATLAB char array")
     oi.mempty && return emptyarray(Array{Char, N}, matsize(f.h5, oi), name)
-    oi.nd == N || error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
+    rankfits(oi.dims, oi.nd, N) ||
+        error("variable \"", name, "\" has rank ", oi.nd, ", not ", N)
 
     # The code units are read as the integer they are stored as, then widened one for one.
     if oi.dt_size == 1
@@ -611,6 +620,24 @@ function matread(f::MatFile, key, ::Type{Array{Char, N}}) where {N}
         return map(Char, readvalues(f, oi, name, Array{UInt16, N}))
     end
     return error("variable \"", name, "\" stores ", oi.dt_size, "-byte characters")
+end
+
+"""
+    matread(f, name, T) -> T
+
+Read a MATLAB scalar as one number.
+
+MATLAB has no scalar. What it shows as one number is a 1x1 array, so this reads the array and
+gives you the single value. If the variable holds more than one value it stops with an error;
+ask for `Matrix{T}` when you want the array.
+"""
+function matread(f::MatFile, key, ::Type{T}) where {T <: Number}
+    a = matread(f, key, Matrix{T})
+    isone(length(a)) || error(
+        "variable \"", keyname(key), "\" holds ", length(a),
+        " values, not 1; ask for an array type",
+    )
+    return a[1]
 end
 
 """

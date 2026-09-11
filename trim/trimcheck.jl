@@ -61,6 +61,7 @@ using TrimCheck
         MAT73.matread(String, String, Type{String}),
         MAT73.matsize(MAT73.MatFile, String),
         MAT73.matclass(MAT73.MatFile, String),
+        MAT73.matread(MAT73.MatFile, String, Type{Float64}),
         MAT73.matread(MAT73.MatFile, String, Type{Matrix{Float64}}),
         MAT73.matread(MAT73.MatFile, String, Type{Array{Float64, 3}}),
         MAT73.matread(MAT73.MatFile, String, Type{Matrix{Float32}}),

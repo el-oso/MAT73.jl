@@ -58,8 +58,19 @@ end
     @test_throws "4-byte elements, not 8" matread(f, "single", Matrix{Float64})
     @test_throws "holds decimal numbers, not whole numbers" matread(f, "double", Matrix{Int64})
     @test_throws "opposite signedness" matread(f, "int32", Matrix{UInt32})
-    @test_throws "rank" matread(f, "double", Vector{Float64})
     @test_throws "no variable or field named" matread(f, "nope", Matrix{Float64})
+    g = matopen(fixture("array.mat"))
+    @test_throws "rank" matread(g, "a2x2", Vector{Float64})
+end
+
+@testitem "a dimension of 1 at the end may be dropped" setup = [Fixtures] begin
+    # MATLAB writes at least 2 dimensions and the HDF5 C library writes a 1xN as 1xNx1, so a
+    # dimension of 1 at the end says nothing about the shape.
+    f = matopen(fixture("array.mat"))
+    @test matread(f, "a2x1", Vector{Float64}) == vec(oracle("array.mat", "a2x1"))
+    @test matread(f, "a2x2", Matrix{Float64}) == oracle("array.mat", "a2x2")
+    # A 1 at the front is a row, which MATLAB means, so it stays.
+    @test_throws "rank" matread(f, "a1x2", Vector{Float64})
 end
 
 @testitem "complex halves are checked, not just the total width" setup = [Fixtures] begin
