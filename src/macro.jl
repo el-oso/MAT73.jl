@@ -60,11 +60,11 @@ is opened once for the whole block. With `f, ref` every path in the block starts
 instead of at the top of the file.
 
 ```julia
-cases = matread(f, "cases", Matrix{MatRef})
+runs = matread(f, "runs", Matrix{MatRef})
 
-v = @matload f, cases[1] begin
-    nfield = "nfield"::Float64
-    xf = "wd/xf"::Matrix{Float64}
+v = @matload f, runs[1] begin
+    count = "count"::Float64
+    values = "inner/values"::Matrix{Float64}
 end
 ```
 

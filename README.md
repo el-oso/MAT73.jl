@@ -164,16 +164,16 @@ A cell inside a cell gives you more marks. The steps stay the same.
 **A path can also start at a mark.** This is how you read a field of a struct held in a cell:
 
 ```julia
-cases = matread(f, "cases", Matrix{MatRef})
-one = cases[1, 1]
+runs = matread(f, "runs", Matrix{MatRef})
+one = runs[1, 1]
 
-matread(f, one, "nfield", Float64)            # one number
-matread(f, one, "wd/xf", Matrix{Float64})     # a field of a field
-matref(f, one, "wd")                          # step down without reading
+matread(f, one, "count", Float64)                # one number
+matread(f, one, "inner/values", Matrix{Float64}) # a field of a field
+matref(f, one, "inner")                          # step down without reading
 
-v = @matload f, one begin                     # or read several at once
-    nfield = "nfield"::Float64
-    xf = "wd/xf"::Matrix{Float64}
+v = @matload f, one begin                        # or read several at once
+    count = "count"::Float64
+    values = "inner/values"::Matrix{Float64}
 end
 ```
 

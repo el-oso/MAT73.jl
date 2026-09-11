@@ -59,12 +59,12 @@ This matters for a cell of structs, which is a common shape. The cell gives you 
 each struct. From there you name the field you want:
 
 ```julia
-cases = matread(f, "cases", Matrix{MatRef})
-one = cases[1, 1]
+runs = matread(f, "runs", Matrix{MatRef})
+one = runs[1, 1]
 
-matread(f, one, "nfield", Float64)            # one number
-matread(f, one, "wd/xf", Matrix{Float64})     # a field of a field
-matread(f, one, "layer/name", Matrix{MatRef}) # a cell field, so more marks
+matread(f, one, "count", Float64)                # one number
+matread(f, one, "inner/values", Matrix{Float64}) # a field of a field
+matread(f, one, "parts/name", Matrix{MatRef})    # a cell field, so more marks
 ```
 
 The path works the same way it does at the top of the file. It goes down as many steps as you
@@ -76,9 +76,9 @@ A plain number type means a MATLAB scalar. You get the value, not the 1x1 array.
 [`matref`](@ref) steps down without reading, for a place you want to use more than once:
 
 ```julia
-wd = matref(f, one, "wd")
-matread(f, wd, "xf", Matrix{Float64})
-matread(f, wd, "yf", Matrix{Float64})
+inner = matref(f, one, "inner")
+matread(f, inner, "values", Matrix{Float64})
+matread(f, inner, "extra", Matrix{Float64})
 ```
 
 ## Objects of a class

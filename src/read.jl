@@ -113,9 +113,9 @@ Find what `path` names below `parent`, and give back a mark for it without readi
 down to a place you want to read from more than once, or to a cell you mean to walk.
 
 ```julia
-items = matread(f, "cases", Matrix{MatRef})
-layer = matref(f, items[1], "layer")     # a struct two steps down
-matread(f, layer, "name", String)
+items = matread(f, "runs", Matrix{MatRef})
+parts = matref(f, items[1], "parts")     # a struct two steps down
+matread(f, parts, "name", String)
 ```
 """
 matref(f::MatFile, parent::MatRef, path::String) = MatRef(lookup(f, parent, path))
@@ -129,12 +129,12 @@ Read what `path` names below `parent`, as type `T`.
 you one mark for each item, so this is how you read a field of the struct behind one of them.
 
 ```julia
-cases = matread(f, "cases", Matrix{MatRef})
-one = cases[1, 1]
+runs = matread(f, "runs", Matrix{MatRef})
+one = runs[1, 1]
 
-n = matread(f, one, "nfield", Float64)              # one number
-xf = matread(f, one, "wd/xf", Matrix{Float64})      # a field of a field
-names = matread(f, one, "layer/name", Matrix{MatRef})
+n = matread(f, one, "count", Float64)                 # one number
+v = matread(f, one, "inner/values", Matrix{Float64})  # a field of a field
+names = matread(f, one, "parts/name", Matrix{MatRef})
 ```
 
 `path` goes down as many steps as you write, with `/` between them. Every type that the

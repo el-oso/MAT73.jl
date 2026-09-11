@@ -49,7 +49,7 @@ it cannot do.
 | whole file | `matread(path)` | — |
 | one variable | `matread(f, "A")` | `matread(f, "A", Matrix{Float64})` |
 | one variable, no handle | — | `matread(path, "A", Matrix{Float64})` |
-| a field below a mark | `matread(f, ref)` | `matread(f, ref, "wd/xf", Matrix{Float64})` |
+| a field below a mark | `matread(f, ref)` | `matread(f, ref, "inner/values", Matrix{Float64})` |
 | works in a small program | no | yes |
 
 Give a path instead of an open file when you want one variable and nothing else. Open the
@@ -180,11 +180,11 @@ A cell of structs gives you a mark for each struct. Give the macro the file and 
 every path in the block starts there.
 
 ```julia
-cases = matread(f, "cases", Matrix{MatRef})
+runs = matread(f, "runs", Matrix{MatRef})
 
-v = @matload f, cases[1] begin
-    nfield = "nfield"::Float64
-    xf = "wd/xf"::Matrix{Float64}
+v = @matload f, runs[1] begin
+    count = "count"::Float64
+    values = "inner/values"::Matrix{Float64}
 end
 ```
 

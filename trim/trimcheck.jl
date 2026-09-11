@@ -39,9 +39,9 @@ using TrimCheck
             # The same block starting at a mark rather than at the top of the file.
             @eval function loadbelow(f::MAT73.MatFile, r::MAT73.MatRef)
                 return MAT73.@matload f, r begin
-                    nfield = "nfield"::Float64
-                    xf = "wd/xf"::Matrix{Float64}
-                    tag = "tag"::String
+                    count = "count"::Float64
+                    values = "inner/values"::Matrix{Float64}
+                    label = "label"::String
                 end
             end
         end,
