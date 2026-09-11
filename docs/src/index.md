@@ -36,8 +36,9 @@ MATLAB has older formats, from version 4 to version 7. They use a different cont
 already covers them in the Julia ecosystem. This package does not repeat that work.
 
 Inside version 7.3 it reads numbers, true and false values, text, complex numbers and empty
-arrays. It reads cell arrays, structs and objects. [The format](format.md) has the full list,
-and the list of what it cannot do.
+arrays. It reads cell arrays, structs and objects. It writes numbers, true and false values,
+text, structs and cell arrays. [The format](format.md) has the full list, and the list of what
+it cannot do.
 
 ## Two ways to read
 
@@ -182,6 +183,128 @@ v.A
 |---|---|
 | `name::Type` | the variable called `name` |
 | `name = "a/path"::Type` | that path, under the name `name` |
+
+## Writing a result
+
+**A named tuple becomes a struct. A tuple becomes a cell array. Both nest.**
+
+Think of a filing cabinet and a row of pigeonholes. A drawer has a label on every folder
+inside it, and you ask for a folder by name: that is a struct. A pigeonhole has only a number,
+and each hole may hold something different: that is a cell array.
+
+You give `matwrite` a name and a value for each variable:
+
+| you give | MATLAB sees |
+|---|---|
+| an `Array` of numbers or `Bool` | an array of the matching type |
+| one number or `Bool` | a 1x1 array |
+| a `String` | text |
+| a `NamedTuple` | a struct, one field per name |
+| a `Tuple` | a cell array of one row |
+
+### Example 1: one flat file
+
+```julia
+using MAT73
+
+matwrite("out.mat", "A" => rand(4, 4), "flags" => [true, false], "label" => "run 3")
+```
+
+### Example 2: a result with structure
+
+A named tuple holds the settings. A tuple holds one entry for each run, and the entries need
+not match in type.
+
+```julia
+settings = (gain = 2.5, mode = "fast", limits = (1.0, 10.0))
+runs = ([1.0 2.0 3.0], "second run failed", (name = "third", ok = true))
+
+matwrite("run.mat", "cfg" => settings, "runs" => runs, "count" => 3)
+```
+
+The file then holds `cfg` as a struct of 3 fields, one of which is a cell array of 2 numbers.
+It holds `runs` as a cell array of 3 items: an array, a piece of text, and a struct. Read
+through MAT.jl, which goes through the HDF5 C library and shares no code with this package,
+that is:
+
+```julia
+julia> MAT.matread("run.mat")["cfg"]
+Dict{String, Any} with 3 entries:
+  "mode"   => "fast"
+  "gain"   => 2.5
+  "limits" => Any[1.0 10.0]
+
+julia> MAT.matread("run.mat")["runs"][3]
+Dict{String, Any} with 2 entries:
+  "name" => "third"
+  "ok"   => true
+```
+
+A field of a struct may itself be a struct or a cell array. An item of a cell array may be
+either as well. There is no limit to the depth.
+
+### Example 3: build the variables in a loop
+
+Nothing is written until the end, because the place of each variable in the file depends on
+the size of every other one. So collect them first with [`MatWriter`](@ref MAT73.MatWriter).
+
+```julia
+w = MatWriter()
+for (name, value) in results
+    push!(w, name, value)
+end
+matwrite("out.mat", w)
+```
+
+### Example 4: write a result and read it back
+
+Both halves state their types. So a small compiled program can write its result and read it
+again, and neither step works anything out while it runs.
+
+```julia
+matwrite("out.mat", "gain" => 2.5, "count" => Int64(7), "label" => "run 3")
+
+v = @matload "out.mat" begin
+    gain::Float64
+    count::Int64
+    label::String
+end
+
+v.gain      # 2.5
+v.label     # "run 3"
+```
+
+A struct reads back one field at a time, by path:
+
+```julia
+matwrite("run.mat", "cfg" => (gain = 2.5, mode = "fast"))
+
+v = @matload "run.mat" begin
+    gain = "cfg/gain"::Float64
+    mode = "cfg/mode"::String
+end
+```
+
+A cell array gives you one mark for each item, because the items may differ in type. You
+follow one mark at a time:
+
+```julia
+matwrite("run.mat", "runs" => ([1.0 2.0], "second"))
+
+f = matopen("run.mat")
+items = matread(f, "runs", Matrix{MatRef})
+matread(f, items[1], Matrix{Float64})   # [1.0 2.0]
+matread(f, items[2], String)            # "second"
+```
+
+### What you cannot write
+
+- A cell array with no items. A cell of one row needs at least one item, so an empty tuple
+  stops with an error.
+- Complex numbers, sparse arrays, `datetime`, `string` and objects. This package reads all of
+  these. It writes none of them yet.
+- Compression. Every array is written in one block, so the file is larger than one MATLAB
+  writes.
 
 ## Order of the dimensions
 
