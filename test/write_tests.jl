@@ -64,3 +64,96 @@ end
     using MAT73: matwrite, MatWriter
     @test_throws "nothing to write" matwrite(joinpath(mktempdir(), "empty.mat"), MatWriter())
 end
+
+@testitem "a named tuple writes a struct and a tuple writes a cell" setup = [Fixtures] begin
+    using MAT73: matwrite
+    import MAT
+
+    mktempdir() do dir
+        path = joinpath(dir, "nested.mat")
+        matwrite(
+            path,
+            "cfg" => (gain = 2.5, mode = "fast", limits = (1.0, 10.0), inner = (n = Int32(7),)),
+            "runs" => ([1.0 2.0], "second", (name = "third", ok = true)),
+            "n" => 42,
+        )
+
+        # libhdf5 checks every header and then MAT.jl rebuilds the MATLAB classes, so a
+        # struct, a cell and their nesting all have to be right for this to pass.
+        d = MAT.matread(path)
+        @test d["cfg"]["gain"] == 2.5
+        @test d["cfg"]["mode"] == "fast"
+        @test d["cfg"]["limits"] == Any[1.0 10.0]
+        @test d["cfg"]["inner"]["n"] == 7
+        @test d["runs"][1] == [1.0 2.0]
+        @test d["runs"][2] == "second"
+        @test d["runs"][3]["name"] == "third"
+        @test d["runs"][3]["ok"] === true
+        @test d["n"] == 42
+    end
+end
+
+@testitem "this package reads back the structs and cells it writes" setup = [Fixtures] begin
+    using MAT73: matwrite, MatRef
+
+    mktempdir() do dir
+        path = joinpath(dir, "nested.mat")
+        matwrite(
+            path,
+            "cfg" => (gain = 2.5, mode = "fast", limits = (1.0, 10.0)),
+            "runs" => ([1.0 2.0], "second"),
+        )
+
+        f = matopen(path)
+        @test matkeys(f, "cfg") == ["gain", "mode", "limits"]
+        @test matread(f, "cfg/gain", Matrix{Float64}) == fill(2.5, 1, 1)
+        @test matread(f, "cfg/mode", String) == "fast"
+
+        items = matread(f, "cfg/limits", Matrix{MatRef})
+        @test size(items) == (1, 2)
+        @test matread(f, items[1], Matrix{Float64}) == fill(1.0, 1, 1)
+        @test matread(f, items[2], Matrix{Float64}) == fill(10.0, 1, 1)
+
+        runs = matread(f, "runs", Matrix{MatRef})
+        @test matread(f, runs[1], Matrix{Float64}) == [1.0 2.0]
+        @test matread(f, runs[2], String) == "second"
+    end
+end
+
+@testitem "a named tuple survives a round trip through a file" setup = [Fixtures] begin
+    using MAT73: matwrite
+
+    # Both halves state their types, so a program built with juliac can write a result and
+    # read it back without either step working the type out while it runs.
+    mktempdir() do dir
+        path = joinpath(dir, "result.mat")
+        result = (gain = 2.5, count = Int64(7), label = "run 3")
+        matwrite(path, "gain" => result.gain, "count" => result.count, "label" => result.label)
+
+        back = @matload path begin
+            gain::Float64
+            count::Int64
+            label::String
+        end
+        @test back == result
+    end
+end
+
+@testitem "the cell contents live under a name MATLAB reserves" setup = [Fixtures] begin
+    using MAT73: matwrite
+
+    mktempdir() do dir
+        path = joinpath(dir, "cells.mat")
+        matwrite(path, "c" => (1.0, "two"))
+        f = matopen(path)
+        # The items a cell points at must still be reachable by name, or the file holds
+        # objects no reader can walk to.
+        @test "#refs#" in keys(f)
+        @test length(matkeys(f, "#refs#")) == 2
+    end
+end
+
+@testitem "an empty cell array is refused rather than written wrong" setup = [Fixtures] begin
+    using MAT73: matwrite, MatWriter
+    @test_throws "empty cell array" push!(MatWriter(), "c", ())
+end

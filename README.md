@@ -217,8 +217,39 @@ You may ask for some of the columns only, in any order.
 matwrite("out.mat", "A" => A, "flags" => flags, "label" => "hello")
 ```
 
-The package writes files in the shape that MATLAB reads. It writes numbers, `Bool` values and
-text. It does not compress. Files are therefore larger than the files MATLAB writes.
+**A named tuple becomes a struct. A tuple becomes a cell array. Both nest.**
+
+```julia
+matwrite(
+    "run.mat",
+    "cfg"  => (gain = 2.5, mode = "fast", limits = (1.0, 10.0)),
+    "runs" => ([1.0 2.0], "second", (name = "third", ok = true)),
+)
+```
+
+| you give | MATLAB sees |
+|---|---|
+| an `Array` of numbers or `Bool` | an array of the matching type |
+| one number or `Bool` | a 1x1 array |
+| a `String` | text |
+| a `NamedTuple` | a struct, one field per name |
+| a `Tuple` | a cell array of one row |
+
+Every type is settled while your program is compiled, so writing works inside a small compiled
+program, as reading does.
+
+A result written from a named tuple reads back into one:
+
+```julia
+matwrite("out.mat", "gain" => 2.5, "label" => "run 3")
+
+v = @matload "out.mat" begin
+    gain::Float64
+    label::String
+end
+```
+
+The package does not compress. Files are therefore larger than the files MATLAB writes.
 
 ## What this package does not do
 
@@ -251,6 +282,9 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
   you those units. One rare character then arrives as 2 units. The `String` method joins them
   correctly.
 - **Compression when writing.**
+- **Writing a cell array with no items.** An empty tuple stops with an error.
+- **Writing complex numbers, sparse arrays, `datetime`, `string` or objects.** These read, but
+  nothing writes them yet.
 
 `keys(f)` also lists 2 names that MATLAB uses for itself: `#refs#` and `#subsystem#`. Skip
 them if you only want your own variables.

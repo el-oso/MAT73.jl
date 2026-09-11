@@ -219,8 +219,37 @@ deflate and shuffle filters.
 Version 2 parts each carry a running total of their own bytes. The HDF5 C library checks these
 totals. A wrong total is rejected. It is not accepted quietly.
 
-This package writes numbers, `Bool` values and text. It does not compress. Files are therefore
-larger than the files MATLAB writes.
+### What you can write
+
+| you give | MATLAB sees |
+|---|---|
+| an `Array` of numbers or `Bool` | an array of the matching type |
+| one number or `Bool` | a 1x1 array |
+| a `String` | text |
+| a `NamedTuple` | a struct, one field per name |
+| a `Tuple` | a cell array of one row |
+
+**A named tuple becomes a struct. A tuple becomes a cell array. Both nest.**
+
+```julia
+matwrite(
+    "run.mat",
+    "cfg"  => (gain = 2.5, mode = "fast", limits = (1.0, 10.0)),
+    "runs" => ([1.0 2.0], "second", (name = "third", ok = true)),
+)
+```
+
+Every type is settled while your program is compiled, so writing works inside a small compiled
+program, as reading does.
+
+A struct is a group holding one member for each field, so a struct inside a struct is a group
+inside a group.
+
+A cell holds no values. It holds the address of each item, as a library catalogue card holds a
+shelf number. The items themselves are written in a hidden entry named `#refs#`, which is where
+MATLAB puts them too. An item must be linked under some name, or nothing could walk to it.
+
+This package does not compress. Files are therefore larger than the files MATLAB writes.
 
 ## What this package does not do
 
@@ -259,6 +288,10 @@ The other limits stop with an error, or report `MAT_UNSUPPORTED`.
   method joins them correctly. MAT.jl gives one `String` for each row instead. This package
   gives what MATLAB stores.
 - **Compression when writing.** Arrays are written in one block each.
+- **Writing a cell array with no items.** A cell of one row needs at least one item, so an
+  empty tuple stops with an error rather than writing a shape MATLAB may not accept.
+- **Writing complex numbers, sparse arrays, `datetime`, `string` or objects.** These read, but
+  nothing writes them yet.
 
 `keys(f)` also lists 2 names that MATLAB uses for itself: `#refs#` and `#subsystem#`. They
 hold the contents of cells and the object tables. Skip them if you only want your own

@@ -18,18 +18,40 @@ const UNDEF_ADDR = typemax(UInt64)
     return v
 end
 
-"""
-    MatEntry
+# What one node of the file is. A group holds other nodes. A dataset holds bytes. A cell is a
+# dataset whose bytes are the addresses of its children, which are known only once the whole
+# file has been laid out.
+const NODE_GROUP = 0
+const NODE_DATASET = 1
+const NODE_CELL = 2
 
-One variable, already reduced to the bytes that describe it. Reducing at `push!` time keeps
-each call concrete in the element type rather than storing user arrays of mixed type.
 """
-struct MatEntry
+    MatNode
+
+One object in the file. Children are positions in the writer's list, so a tree of them needs
+no recursive type and no pointer chasing.
+
+A value is reduced to bytes when it is added. Keeping user values instead would make the
+writer hold a container of mixed type.
+"""
+struct MatNode
     name::String
+    kind::Int
     datatype::Vector{UInt8}
     dataspace::Vector{UInt8}
     attributes::Vector{Vector{UInt8}}
     data::Vector{UInt8}
+    children::Vector{Int}
+end
+
+groupnode(name::String, attrs::Vector{Vector{UInt8}}) =
+    MatNode(name, NODE_GROUP, UInt8[], UInt8[], attrs, UInt8[], Int[])
+
+function datasetnode(
+        name::String, datatype::Vector{UInt8}, dataspace::Vector{UInt8},
+        attrs::Vector{Vector{UInt8}}, data::Vector{UInt8},
+    )
+    return MatNode(name, NODE_DATASET, datatype, dataspace, attrs, data, Int[])
 end
 
 """
@@ -43,9 +65,21 @@ Nothing is written until the end. The place of each array in the file depends on
 every other array, so all sizes must be known first.
 """
 struct MatWriter
-    entries::Vector{MatEntry}
+    nodes::Vector{MatNode}
 end
-MatWriter() = MatWriter(MatEntry[])
+
+"The root group is always the first node, so its position is a constant."
+const ROOT = 1
+
+MatWriter() = MatWriter(MatNode[groupnode("", Vector{UInt8}[])])
+
+"Add `node` under `parent` and give back its position."
+function addnode!(w::MatWriter, parent::Int, node::MatNode)
+    push!(w.nodes, node)
+    i = length(w.nodes)
+    push!(w.nodes[parent].children, i)
+    return i
+end
 
 # ── message bodies ──────────────────────────────────────────────────────────
 
@@ -76,6 +110,16 @@ function datatype_message(::Type{T}) where {T <: Integer}
     putuint!(v, sizeof(T), 4)
     putuint!(v, 0, 2)
     putuint!(v, 8 * sizeof(T), 2)
+    return v
+end
+
+"""
+Datatype message body for an object reference, which is how a cell array stores its items: 8
+bytes holding the address of another object header.
+"""
+function reference_datatype_message()
+    v = UInt8[0x17, 0x00, 0x00, 0x00]         # version 1, class 7; object reference
+    putuint!(v, 8, 4)
     return v
 end
 
@@ -193,12 +237,26 @@ function object_header_size(messages::Vector{Tuple{Int, Vector{UInt8}}})
     return 14 + sum(message_size(m[2]) for m in messages; init = 0)
 end
 
-function dataset_messages(e::MatEntry, data_addr::Int)
+"""
+The messages of one node's object header.
+
+No message's size depends on an address it carries, so calling this with zeros gives the
+header's size before any address is settled.
+"""
+function node_messages(w::MatWriter, i::Int, hdrs::Vector{Int}, data_addr::Int, base::Int)
+    n = w.nodes[i]
     messages = Tuple{Int, Vector{UInt8}}[]
-    push!(messages, (1, e.dataspace))
-    push!(messages, (3, e.datatype))
-    push!(messages, (8, layout_message(data_addr, length(e.data))))
-    for a in e.attributes
+    if n.kind == NODE_GROUP
+        push!(messages, (2, link_info_message()))
+        for c in n.children
+            push!(messages, (6, link_message(w.nodes[c].name, hdrs[c] - base)))
+        end
+    else
+        push!(messages, (1, n.dataspace))
+        push!(messages, (3, n.datatype))
+        push!(messages, (8, layout_message(data_addr, length(n.data))))
+    end
+    for a in n.attributes
         push!(messages, (12, a))
     end
     return messages
@@ -219,39 +277,140 @@ matlab_class(::Type{Bool}) = "logical"
 matlab_class(::Type{T}) where {T <: Integer} = lowercase(string(nameof(T)))
 
 """
-    push!(w, name, a)
+Add one value under `parent`, and give back its position.
 
-Add array `a` under `name`. The array is converted to bytes immediately, so `w` never holds
-values of mixed type.
+The methods cover the whole of what this package writes. Each one settles what to write from
+the type it is given, so the choice is made while the program is compiled.
 """
-function Base.push!(w::MatWriter, name::String, a::Array{T, N}) where {T <: Union{Bool, Float32, Float64, Integer}, N}
+function addvalue!(
+        w::MatWriter, parent::Int, name::String, a::Array{T, N},
+    ) where {T <: Union{Bool, Float32, Float64, Integer}, N}
     attrs = Vector{UInt8}[matlab_class_attribute(matlab_class(T))]
     T === Bool && push!(attrs, matlab_int_decode_attribute(1))
     dt = T === Bool ? datatype_message(UInt8) : datatype_message(T)
-    push!(
-        w.entries,
-        MatEntry(name, dt, dataspace_message(hdf5dims(a)), attrs, rawbytes(a)),
+    return addnode!(
+        w, parent,
+        datasetnode(name, dt, dataspace_message(hdf5dims(a)), attrs, rawbytes(a)),
     )
-    return w
 end
 
-"""
-    push!(w, name, s)
+# A MATLAB scalar is a 1x1 array, which is what MATLAB itself shows for one number.
+function addvalue!(
+        w::MatWriter, parent::Int, name::String, x::Union{Bool, Float32, Float64, Integer},
+    )
+    return addvalue!(w, parent, name, fill(x, 1, 1))
+end
 
-Add a string under `name`. MATLAB holds char data as UTF-16 code units in a `1xN` array.
-"""
-function Base.push!(w::MatWriter, name::String, s::AbstractString)
+"MATLAB holds char data as UTF-16 code units in a 1xN array."
+function addvalue!(w::MatWriter, parent::Int, name::String, s::AbstractString)
     units = transcode(UInt16, String(s))
     attrs = Vector{UInt8}[
         matlab_class_attribute("char"), matlab_int_decode_attribute(2),
     ]
-    push!(
-        w.entries,
-        MatEntry(
+    return addnode!(
+        w, parent,
+        datasetnode(
             name, datatype_message(UInt16), dataspace_message([length(units), 1]),
             attrs, collect(reinterpret(UInt8, units)),
         ),
     )
+end
+
+# ── structs and cells ───────────────────────────────────────────────────────
+
+"""
+Add the fields of a named tuple as the fields of a MATLAB struct.
+
+The loop over the fields is written out when the program is compiled, so every field is added
+by a call whose type is already settled.
+"""
+@generated function addfields!(w::MatWriter, parent::Int, nt::NT) where {NT <: NamedTuple}
+    calls = Expr[]
+    for name in fieldnames(NT)
+        push!(calls, :(addvalue!(w, parent, $(String(name)), getfield(nt, $(QuoteNode(name))))))
+    end
+    return Expr(:block, calls..., :(return w))
+end
+
+"A named tuple becomes a MATLAB struct: a group with one member for each field."
+function addvalue!(w::MatWriter, parent::Int, name::String, nt::NamedTuple)
+    i = addnode!(w, parent, groupnode(name, Vector{UInt8}[matlab_class_attribute("struct")]))
+    addfields!(w, i, nt)
+    return i
+end
+
+"""
+The group that holds the contents of every cell array.
+
+A cell holds addresses. An object an address points at must still be linked somewhere, or the
+file holds an object no reader can reach by name. MATLAB uses this name for the same purpose.
+"""
+function refsgroup!(w::MatWriter)
+    for c in w.nodes[ROOT].children
+        w.nodes[c].name == "#refs#" && return c
+    end
+    return addnode!(w, ROOT, groupnode("#refs#", Vector{UInt8}[]))
+end
+
+"""
+Add the items of a tuple to `#refs#` and record where each one went.
+
+The loop is written out when the program is compiled, so each item is added by a call whose
+type is already settled. Nothing looks an item up by its name inside `#refs#`, so a running
+count is enough to keep the names apart.
+"""
+@generated function additems!(w::MatWriter, cell::Int, refs::Int, t::T) where {T <: Tuple}
+    calls = Expr[]
+    for i in 1:fieldcount(T)
+        push!(
+            calls,
+            :(
+                push!(
+                    w.nodes[cell].children,
+                    addvalue!(w, refs, string(length(w.nodes)), getfield(t, $i)),
+                )
+            ),
+        )
+    end
+    return Expr(:block, calls..., :(return w))
+end
+
+"""
+A tuple becomes a MATLAB cell array of one row.
+
+The items may have different types, which is what a cell array is for. Each one is written in
+`#refs#`, and the cell itself holds the address of each.
+"""
+function addvalue!(w::MatWriter, parent::Int, name::String, t::Tuple)
+    n = length(t)
+    n > 0 || error("cannot write an empty cell array under \"", name, "\"")
+    node = MatNode(
+        name, NODE_CELL, reference_datatype_message(), dataspace_message([n, 1]),
+        Vector{UInt8}[matlab_class_attribute("cell")], zeros(UInt8, 8n), Int[],
+    )
+    i = addnode!(w, parent, node)
+    refs = refsgroup!(w)
+    additems!(w, i, refs, t)
+    return i
+end
+
+"""
+    push!(w, name, value)
+
+Add `value` under `name`.
+
+| you give | MATLAB sees |
+|---|---|
+| an `Array` of numbers or `Bool` | an array of the matching type |
+| one number or `Bool` | a 1x1 array |
+| a `String` | text |
+| a `NamedTuple` | a struct, one field per name |
+| a `Tuple` | a cell array of one row |
+
+A named tuple or a tuple may hold any of these in turn, so structs and cells nest.
+"""
+function Base.push!(w::MatWriter, name::String, value)
+    addvalue!(w, ROOT, name, value)
     return w
 end
 
@@ -263,53 +422,56 @@ Write a MATLAB `.mat` file of version 7.3.
 
 ```julia
 matwrite("out.mat", "A" => A, "flags" => flags, "label" => "hello")
+
+# A named tuple becomes a struct, and a tuple becomes a cell array. Both nest.
+matwrite(
+    "run.mat",
+    "cfg" => (gain = 2.5, mode = "fast", limits = (1.0, 10.0)),
+    "runs" => ([1.0 2.0], "second", (name = "third", ok = true)),
+)
 ```
 
-MATLAB reads the result. The file holds numbers, `Bool` values and text. It is not compressed,
-so it is larger than a file MATLAB writes.
+MATLAB reads the result. It is not compressed, so it is larger than a file MATLAB writes.
 """
 function matwrite(path::String, w::MatWriter)
-    isempty(w.entries) && error("nothing to write")
+    isempty(w.nodes[ROOT].children) && error("nothing to write")
 
-    # Lay the file out: user block, superblock, root group, dataset headers, then the data.
-    # A message's size never depends on the address it carries, so sizes are known first.
+    # Lay the file out: user block, superblock, every object header, then every block of data.
+    # A message's size never depends on the address it carries, so all the sizes are settled
+    # first and the addresses second.
     sb_off = USERBLOCK
     sb_size = 48
-    root_off = sb_off + sb_size
 
-    linkmsgs = Tuple{Int, Vector{UInt8}}[(2, link_info_message())]
-    header_sizes = Int[]
-    for e in w.entries
-        push!(header_sizes, object_header_size(dataset_messages(e, 0)))
-    end
-    root_size = 0
-    hdr_offs = Int[]
-    let off = 0
-        # The link messages need the header addresses, which need the root group's size,
-        # which needs the link messages: resolved by noting that a link message's size is
-        # independent of the address inside it.
-        probe = Tuple{Int, Vector{UInt8}}[(2, link_info_message())]
-        for e in w.entries
-            push!(probe, (6, link_message(e.name, 0)))
-        end
-        root_size = object_header_size(probe)
-        off = root_off + root_size
-        for s in header_sizes
-            push!(hdr_offs, off)
-            off += s
-        end
-        data_off = off
-        for (i, e) in enumerate(w.entries)
-            push!(linkmsgs, (6, link_message(e.name, hdr_offs[i] - sb_off)))
-            push!(hdr_offs, data_off)   # data addresses are appended after the headers
-            data_off += length(e.data)
-        end
-    end
+    nnodes = length(w.nodes)
+    zeros_ = zeros(Int, nnodes)
+    header_sizes = Int[object_header_size(node_messages(w, i, zeros_, 0, 0)) for i in 1:nnodes]
 
-    n = length(w.entries)
-    data_offs = hdr_offs[(n + 1):end]
-    hdr_offs = hdr_offs[1:n]
-    eof = data_offs[end] + length(w.entries[end].data)
+    hdr_offs = Vector{Int}(undef, nnodes)
+    data_offs = zeros(Int, nnodes)
+    off = sb_off + sb_size
+    for i in 1:nnodes
+        hdr_offs[i] = off
+        off += header_sizes[i]
+    end
+    for i in 1:nnodes
+        w.nodes[i].kind == NODE_GROUP && continue
+        data_offs[i] = off
+        off += length(w.nodes[i].data)
+    end
+    eof = off
+
+    # A cell holds the address of each of its items, so its own bytes can only be filled in
+    # once every header has a place.
+    for i in 1:nnodes
+        w.nodes[i].kind == NODE_CELL || continue
+        n = w.nodes[i]
+        for (k, c) in enumerate(n.children)
+            a = UInt64(hdr_offs[c] - sb_off)
+            for b in 0:7
+                n.data[8 * (k - 1) + b + 1] = unsafe_trunc(UInt8, a >> (8 * b))
+            end
+        end
+    end
 
     out = Vector{UInt8}(undef, 0)
     sizehint!(out, eof)
@@ -327,22 +489,19 @@ function matwrite(path::String, w::MatWriter)
     putuint!(sb, sb_off, 8)                   # base address
     putuint!(sb, UNDEF_ADDR, 8)               # superblock extension
     putuint!(sb, eof, 8)
-    putuint!(sb, root_off - sb_off, 8)
+    putuint!(sb, hdr_offs[ROOT] - sb_off, 8)
     putuint!(sb, checksum(sb, 0, length(sb)), 4)
     length(sb) == sb_size || error("superblock is ", length(sb), " bytes, expected ", sb_size)
     append!(out, sb)
 
-    root = object_header(linkmsgs)
-    length(root) == root_size || error("root group header size was mispredicted")
-    append!(out, root)
-
-    for (i, e) in enumerate(w.entries)
-        hdr = object_header(dataset_messages(e, data_offs[i] - sb_off))
-        length(hdr) == header_sizes[i] || error("dataset header size was mispredicted")
+    for i in 1:nnodes
+        hdr = object_header(node_messages(w, i, hdr_offs, data_offs[i] - sb_off, sb_off))
+        length(hdr) == header_sizes[i] || error("an object header size was mispredicted")
         append!(out, hdr)
     end
-    for e in w.entries
-        append!(out, e.data)
+    for i in 1:nnodes
+        w.nodes[i].kind == NODE_GROUP && continue
+        append!(out, w.nodes[i].data)
     end
     length(out) == eof || error("wrote ", length(out), " bytes, expected ", eof)
 

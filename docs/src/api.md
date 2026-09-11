@@ -36,6 +36,7 @@ MAT73.MatRef
 ```@docs
 matwrite
 MAT73.MatWriter
+push!(::MAT73.MatWriter, ::String, ::Any)
 ```
 
 **Use `matwrite(path, pairs...)` for the simple case.**

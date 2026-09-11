@@ -68,6 +68,20 @@ using TrimCheck
         MAT73.matobjectclass(MAT73.MatFile, String),
         Base.push!(MAT73.MatWriter, String, Matrix{Float64}),
         Base.push!(MAT73.MatWriter, String, Matrix{Bool}),
+        Base.push!(MAT73.MatWriter, String, Float64),
+        Base.push!(MAT73.MatWriter, String, String),
+        # A struct and a cell, each holding the other, so the nesting is verified too.
+        Base.push!(
+            MAT73.MatWriter, String,
+            NamedTuple{
+                (:gain, :label, :items),
+                Tuple{Float64, String, Tuple{Float64, Matrix{Float64}}},
+            },
+        ),
+        Base.push!(
+            MAT73.MatWriter, String,
+            Tuple{Matrix{Float64}, String, NamedTuple{(:n,), Tuple{Int64}}},
+        ),
         MAT73.matwrite(String, MAT73.MatWriter),
     )
 end
